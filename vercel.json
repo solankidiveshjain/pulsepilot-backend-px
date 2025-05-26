@@ -19,5 +19,38 @@
     "main.py": {
       "maxDuration": 30
     }
-  }
+  },
+  "regions": ["iad1"],
+  "framework": null,
+  "installCommand": "pip install -r requirements.txt",
+  "buildCommand": "python -c 'from main import app; print(\"Build successful\")'",
+  "devCommand": "uvicorn main:app --host 0.0.0.0 --port 3000 --reload",
+  "outputDirectory": null,
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/main.py"
+    }
+  ]
 }
