@@ -19,7 +19,7 @@ AI-powered social media comment management backend built with FastAPI, Supabase,
 - **ORM**: SQLModel
 - **Authentication**: Supabase Auth with JWT
 - **AI/ML**: LangChain, OpenAI GPT-4, sentence-transformers
-- **Background Tasks**: ARQ with Redis
+- **Background Tasks**: Dramatiq with Redis
 - **Monitoring**: Prometheus metrics
 - **Deployment**: Docker, Vercel
 
@@ -129,62 +129,10 @@ Once running, visit:
 
 - `POST /teams/{teamId}/platforms/{platform}/connections` - Connect social media account
 - `GET /teams/{teamId}/comments/{commentId}/suggestions` - Get AI reply suggestions
+- `GET /teams/{teamId}/comments/{commentId}/suggestions/stream` - Stream AI-powered reply suggestions in real-time (Server-Sent Events)
 - `POST /teams/{teamId}/comments/{commentId}/reply` - Submit reply
 - `POST /webhooks/{platform}` - Webhook for comment ingestion
 - `POST /api/embeddings/generate` - Generate comment embeddings
 - `POST /api/classify` - Classify comment sentiment/emotion
 
 ## 🔄 Background Tasks
-
-The system uses ARQ for background processing:
-
-- **Comment Processing**: Embedding generation and classification
-- **Reply Submission**: Async posting to social platforms
-- **Batch Operations**: Bulk processing for performance
-
-## 📊 Monitoring
-
-- **Health Check**: `GET /health`
-- **Metrics**: `GET /metrics` (Prometheus format)
-- **Logs**: Structured JSON logging
-
-## 🧪 Testing
-
-```bash
-# Run tests
-pytest
-
-# Run with coverage
-pytest --cov=.
-
-# Run specific test file
-pytest tests/test_api.py
-```
-
-## 🔒 Security
-
-- JWT authentication with Supabase
-- Webhook signature verification
-- Role-based access control
-- Input validation with Pydantic
-- SQL injection protection with SQLModel
-
-## 📈 Performance
-
-- Async/await throughout
-- Connection pooling
-- Background task processing
-- Vector similarity search optimization
-- Proper database indexing
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License.
