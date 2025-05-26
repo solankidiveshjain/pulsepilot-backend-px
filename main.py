@@ -1,11 +1,10 @@
 """
-PulsePilot Backend API
-FastAPI application for AI-powered social media comment management
+PulsePilot Backend API - Refactored with proper error handling and configuration
 """
 
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -20,27 +19,33 @@ from api.classification import router as classification_router
 from api.billing import router as billing_router
 from api.users import router as users_router
 from utils.database import init_db
+from utils.config import validate_config_on_startup
 from utils.logging import setup_logging, get_logger
-from utils.middleware import LoggingMiddleware, ErrorHandlingMiddleware
+from utils.middleware import LoggingMiddleware
+from utils.error_handler import GlobalExceptionHandler
 
 logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager"""
+    """Application lifespan manager with proper error handling"""
     # Startup
-    setup_logging()
-    
-    # Initialize database with Supabase
     try:
+        setup_logging()
+        logger.info("Starting PulsePilot Backend API")
+        
+        # Validate configuration
+        config = validate_config_on_startup()
+        logger.info("Configuration validated successfully")
+        
+        # Initialize database
         await init_db()
         logger.info("Database initialized successfully")
+        
     except Exception as e:
-        logger.error(f"Database initialization failed: {str(e)}")
-        # Don't fail startup for database issues in production
-        if os.getenv("ENVIRONMENT") != "production":
-            raise
+        logger.error(f"Application startup failed: {str(e)}")
+        raise
     
     yield
     
@@ -58,7 +63,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add middleware
+# Add middleware in correct order
+app.add_middleware(GlobalExceptionHandler)
+app.add_middleware(LoggingMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Configure for production
@@ -71,9 +79,6 @@ app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=["*"]  # Configure for production
 )
-
-app.add_middleware(LoggingMiddleware)
-app.add_middleware(ErrorHandlingMiddleware)
 
 # Add Prometheus metrics
 instrumentator = Instrumentator()

@@ -1,24 +1,18 @@
 """
-Webhook endpoints for ingesting comments from social platforms
+Webhook endpoints for ingesting comments from social platforms - Refactored
 """
 
-from typing import Dict, Any
 from fastapi import APIRouter, Request, HTTPException, status, BackgroundTasks
-from pydantic import BaseModel
-
-from services.webhook_processors import get_webhook_processor
-from tasks.comment_tasks import process_comment_embedding
-
+from services.platforms.registry import get_platform_service
+from services.platforms.base import WebhookPayload
+from tasks.webhook_tasks import webhook_processing_task, task_queue
+from schemas.responses import WebhookResponse
+from utils.exceptions import handle_platform_error
 
 router = APIRouter()
 
 
-class WebhookResponse(BaseModel):
-    status: str
-    message: str
-
-
-@router.post("/{platform}")
+@router.post("/{platform}", response_model=WebhookResponse)
 async def handle_webhook(
     platform: str,
     request: Request,
@@ -26,47 +20,37 @@ async def handle_webhook(
 ) -> WebhookResponse:
     """Handle webhook from social media platform"""
     
-    # Get webhook processor for platform
-    processor = get_webhook_processor(platform)
-    if not processor:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported platform: {platform}"
-        )
-    
     try:
+        # Get platform service
+        platform_service = get_platform_service(platform)
+        
         # Get raw body and headers
         body = await request.body()
         headers = dict(request.headers)
         
-        # Verify webhook signature
-        is_valid = await processor.verify_signature(body, headers)
-        if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid webhook signature"
-            )
+        # Parse JSON payload
+        try:
+            json_data = await request.json()
+        except Exception:
+            json_data = {}
         
-        # Parse webhook payload
-        payload = await request.json()
+        # Prepare payload data for background task
+        payload_data = {
+            "headers": headers,
+            "body": body,
+            "json_data": json_data,
+            "team_id": None  # This should be determined from webhook content
+        }
         
-        # Process webhook and extract comments
-        comments = await processor.process_webhook(payload)
-        
-        # Queue background tasks for each comment
-        for comment_data in comments:
-            background_tasks.add_task(
-                process_comment_embedding,
-                comment_data
-            )
+        # Queue webhook processing task
+        task_queue.add_task(
+            webhook_processing_task.run_with_error_handling(platform, payload_data)
+        )
         
         return WebhookResponse(
-            status="success",
-            message=f"Processed {len(comments)} comments from {platform}"
+            status="accepted",
+            message=f"Webhook from {platform} queued for processing"
         )
         
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Webhook processing failed: {str(e)}"
-        )
+        raise handle_platform_error(e, platform)
