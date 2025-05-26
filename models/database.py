@@ -46,6 +46,11 @@ class User(SQLModel, table=True):
 class SocialConnection(SQLModel, table=True):
     __tablename__ = "social_connections"
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if hasattr(self, 'metadata_json'):
+            object.__setattr__(self, 'metadata', self.metadata_json)
+    
     connection_id: UUID = Field(default_factory=uuid4, primary_key=True)
     team_id: UUID = Field(foreign_key="teams.team_id")
     platform: str = Field(max_length=50)
@@ -53,7 +58,7 @@ class SocialConnection(SQLModel, table=True):
     access_token: str
     refresh_token: Optional[str] = Field(default=None)
     token_expires: Optional[datetime] = Field(default=None)
-    metadata: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    metadata_json: Optional[Dict[str, Any]] = Field(default=None, alias="metadata", sa_column=Column("metadata", JSON))
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     
@@ -64,6 +69,11 @@ class SocialConnection(SQLModel, table=True):
 class Comment(SQLModel, table=True):
     __tablename__ = "comments"
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if hasattr(self, 'metadata_json'):
+            object.__setattr__(self, 'metadata', self.metadata_json)
+    
     comment_id: UUID = Field(default_factory=uuid4, primary_key=True)
     team_id: UUID = Field(foreign_key="teams.team_id")
     platform: str = Field(max_length=50)
@@ -73,7 +83,7 @@ class Comment(SQLModel, table=True):
     archived: bool = Field(default=False)
     flagged: bool = Field(default=False)
     embedding: Optional[List[float]] = Field(default=None, sa_column=Column(Vector(768)))
-    metadata: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    metadata_json: Optional[Dict[str, Any]] = Field(default=None, alias="metadata", sa_column=Column("metadata", JSON))
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     
@@ -114,12 +124,17 @@ class AiSuggestion(SQLModel, table=True):
 class Post(SQLModel, table=True):
     __tablename__ = "posts"
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if hasattr(self, 'metadata_json'):
+            object.__setattr__(self, 'metadata', self.metadata_json)
+    
     post_id: UUID = Field(default_factory=uuid4, primary_key=True)
     team_id: UUID = Field(foreign_key="teams.team_id")
     platform: Optional[str] = Field(default=None, max_length=50)
     type: Optional[str] = Field(default=None, max_length=20)  # text, image, video, link
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    metadata: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    metadata_json: Optional[Dict[str, Any]] = Field(default=None, alias="metadata", sa_column=Column("metadata", JSON))
     
     # Relationships
     team: Team = Relationship(back_populates="posts")
@@ -129,12 +144,18 @@ class Post(SQLModel, table=True):
 class TokenUsage(SQLModel, table=True):
     __tablename__ = "token_usage"
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if hasattr(self, 'metadata_json'):
+            object.__setattr__(self, 'metadata', self.metadata_json)
+    
     usage_id: int = Field(primary_key=True)
     team_id: UUID = Field(foreign_key="teams.team_id")
     tokens_used: int
     usage_type: str = Field(max_length=20)  # embedding, classification, generation
     cost: Optional[float] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    metadata_json: Optional[Dict[str, Any]] = Field(default=None, alias="metadata", sa_column=Column("metadata", JSON))
     
     # Relationships
     team: Team = Relationship(back_populates="token_usage")

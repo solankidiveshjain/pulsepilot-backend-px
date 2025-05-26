@@ -40,11 +40,13 @@ class ConfigBootstrap:
             missing_critical = self._check_critical_secrets(config)
             if missing_critical:
                 self._abort_startup(f"CRITICAL: Missing required secrets: {', '.join(missing_critical)}")
+                return
             
             # Check platform secrets
             missing_platform = self._check_platform_secrets(config)
             if missing_platform:
                 self._abort_startup(f"CRITICAL: Missing platform secrets: {', '.join(missing_platform)}")
+                return
             
             # Validate secret formats
             self._validate_secret_formats(config)

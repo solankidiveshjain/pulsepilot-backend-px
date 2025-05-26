@@ -8,6 +8,7 @@ sqlmodel==0.0.14
 asyncpg==0.29.0
 alembic==1.12.1
 pgvector==0.2.4
+aiosqlite==0.21.0
 
 # AI and ML
 langchain==0.1.0
@@ -31,6 +32,7 @@ passlib[bcrypt]==1.7.4
 # Monitoring and logging
 prometheus-fastapi-instrumentator==6.1.0
 structlog==23.2.0
+prometheus-client==0.22.0
 
 # Utilities
 python-dotenv==1.0.0

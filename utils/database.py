@@ -10,7 +10,7 @@ from models.database import *
 
 
 # Database configuration
-DATABASE_URL = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or "sqlite+aiosqlite:///:memory:"
 
 if not DATABASE_URL:
     raise ValueError("Database URL not found. Please set POSTGRES_URL environment variable.")

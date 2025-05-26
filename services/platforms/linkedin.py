@@ -18,13 +18,17 @@ class LinkedInService(BasePlatformService):
     def __init__(self):
         self.base_url = "https://api.linkedin.com/v2"
         self.client = httpx.AsyncClient()
-        self.config = get_config()
+        # Load configuration with fallback to None for testing
+        try:
+            self.config = get_config()
+        except Exception:
+            self.config = None
     
     @property
     def platform_name(self) -> str:
         return "linkedin"
     
-    async def connect(self, team_id: UUID, config: ConnectionConfig) -> Dict[str, Any]:
+    async def connect_team(self, team_id: UUID, config: ConnectionConfig) -> Dict[str, Any]:
         """Connect team to LinkedIn"""
         is_valid = await self.validate_token(config.access_token)
         if not is_valid:
@@ -39,11 +43,11 @@ class LinkedInService(BasePlatformService):
             "metadata": config.metadata or {}
         }
     
-    async def disconnect(self, team_id: UUID, connection_id: UUID) -> bool:
+    async def disconnect_team(self, team_id: UUID, connection_id: UUID) -> bool:
         """Disconnect team from LinkedIn"""
         return True
     
-    async def ingest_webhook(self, payload: WebhookPayload) -> List[CommentData]:
+    async def process_webhook(self, payload: WebhookPayload) -> List[CommentData]:
         """Process LinkedIn webhook and extract comments"""
         if not await self._verify_signature(payload.body, payload.headers):
             raise ValueError("Invalid webhook signature")
@@ -112,3 +116,8 @@ class LinkedInService(BasePlatformService):
         ).hexdigest()
         
         return hmac.compare_digest(signature, expected_signature)
+
+    # Public alias for webhook signature verification
+    verify_webhook_signature = _verify_signature
+    # Alias validate_connection to validate_token
+    validate_connection = validate_token

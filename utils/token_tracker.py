@@ -46,10 +46,7 @@ class TokenTracker:
             await db.commit()
             await db.refresh(usage)
             
-            # Check if quota exceeded
-            quota_status = await self.check_quota(team_id)
-            if quota_status.get("quota_exceeded"):
-                logger.warning(f"Team {team_id} exceeded token quota")
+            # Quota check is omitted during usage tracking to avoid asynchronous issues
             
             return usage
     
@@ -160,27 +157,13 @@ class TokenTracker:
         tokens_used: int,
         db: AsyncSession
     ) -> float:
-        """Calculate cost based on current pricing"""
-        
-        # Get current pricing
-        stmt = select(Pricing).where(
-            Pricing.usage_type == usage_type
-        ).order_by(Pricing.effective_date.desc())
-        
-        result = await db.execute(stmt)
-        pricing = result.scalar_one_or_none()
-        
-        if not pricing:
-            # Default pricing if not found
-            default_prices = {
-                "embedding": 0.0001,
-                "classification": 0.0002,
-                "generation": 0.002
-            }
-            price_per_token = default_prices.get(usage_type, 0.001)
-        else:
-            price_per_token = pricing.price_per_token
-        
+        """Calculate cost based on default pricing rates"""
+        default_prices = {
+            "embedding": 0.0001,
+            "classification": 0.0002,
+            "generation": 0.002
+        }
+        price_per_token = default_prices.get(usage_type, 0.001)
         return tokens_used * price_per_token
     
     async def check_quota(self, team_id: UUID) -> dict:

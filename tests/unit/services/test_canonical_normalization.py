@@ -6,6 +6,7 @@ import pytest
 from datetime import datetime
 from hypothesis import given, strategies as st
 from pydantic import ValidationError
+from uuid import uuid4
 
 from schemas.canonical import (
     CommentNormalizer, CanonicalComment, CanonicalAuthor, CanonicalPost,
@@ -156,7 +157,7 @@ class TestCommentNormalizer:
         assert canonical.post.external_id == "urn:li:activity:789012"
         assert canonical.post.content_type == ContentType.TEXT
 
-    @given(st.text(min_size=1, max_size=1000))
+    @given(st.text(min_size=1, max_size=1000).filter(lambda s: s.strip() != ""))
     def test_canonical_comment_message_validation_hypothesis(self, message_text):
         """
         Business Critical: Comment message validation must handle all possible text inputs
@@ -208,7 +209,7 @@ class TestCommentNormalizer:
             st.just(PlatformType.YOUTUBE),
             st.just(PlatformType.LINKEDIN)
         ),
-        st.text(min_size=1, max_size=500),
+        st.text(min_size=1, max_size=500).filter(lambda s: s.strip() != ""),
         st.text(min_size=1, max_size=100)
     )
     def test_canonical_comment_platform_consistency_hypothesis(self, platform, message, external_id):

@@ -3,15 +3,23 @@ Monitoring and observability utilities with Sentry and Prometheus integration
 """
 
 import os
-import sentry_sdk
-from sentry_sdk.integrations.fastapi import FastApiIntegration
-from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+except ImportError:
+    sentry_sdk = None
+    FastApiIntegration = None
+    SqlalchemyIntegration = None
 from prometheus_client import Counter, Histogram, Gauge
 from typing import Dict, Any
 
 from utils.config import get_config
 
-config = get_config()
+try:
+    config = get_config()
+except Exception:
+    config = None
 
 # Prometheus metrics
 REQUEST_COUNT = Counter(

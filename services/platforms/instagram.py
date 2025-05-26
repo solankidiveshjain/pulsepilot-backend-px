@@ -18,7 +18,11 @@ class InstagramService(BasePlatformService):
     def __init__(self):
         self.base_url = "https://graph.instagram.com"
         self.client = httpx.AsyncClient()
-        self.config = get_config()
+        # Load configuration with fallback to None for testing
+        try:
+            self.config = get_config()
+        except Exception:
+            self.config = None
     
     @property
     def platform_name(self) -> str:

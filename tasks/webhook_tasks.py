@@ -188,7 +188,8 @@ class CommentClassificationTask(BaseTask):
                 return True
                 
         except Exception as e:
-            raise DatabaseError(f"Classification failed for comment {comment_id}", {"error": str(e)}")
+            error_info = {"error": str(e)}
+            raise DatabaseError("Classification failed for comment {}".format(comment_id), error_info)
 
 
 class ReplySubmissionTask(BaseTask):

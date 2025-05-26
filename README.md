@@ -35,37 +35,38 @@ AI-powered social media comment management backend built with FastAPI, Supabase,
 ## 🔧 Installation
 
 1. **Clone the repository**
-   \`\`\`bash
-   git clone <repository-url>
-   cd pulsepilot-backend
-   \`\`\`
+   ```bash
+   git clone https://github.com/solankidiveshjain/pulsepilot-backend-px.git
+   cd pulsepilot-backend-px
+   ```
 
-2. **Install dependencies**
-   \`\`\`bash
+2. **Install runtime and development dependencies**
+   ```bash
    pip install -r requirements.txt
-   \`\`\`
+   pip install -r requirements-dev.txt
+   ```
 
 3. **Set up environment variables**
-   \`\`\`bash
+   ```bash
    cp .env.example .env
    # Edit .env with your configuration
-   \`\`\`
+   ```
 
 4. **Initialize the database**
-   \`\`\`bash
+   ```bash
    python scripts/init_db.py
-   \`\`\`
+   ```
 
 5. **Run the application**
-   \`\`\`bash
+   ```bash
    uvicorn main:app --reload
-   \`\`\`
+   ```
 
 ## 🌐 Environment Variables
 
 ### Required Variables
 
-\`\`\`env
+```env
 # Supabase (automatically provided by Vercel integration)
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_JWT_SECRET=your-jwt-secret
@@ -88,35 +89,35 @@ LINKEDIN_CLIENT_SECRET=your-linkedin-client-secret
 
 # Redis
 REDIS_URL=redis://localhost:6379
-\`\`\`
+```
 
 ## 🚀 Deployment
 
 ### Vercel Deployment
 
 1. **Connect to Vercel**
-   \`\`\`bash
+   ```bash
    vercel
-   \`\`\`
+   ```
 
 2. **Set environment variables in Vercel dashboard**
 
 3. **Deploy**
-   \`\`\`bash
+   ```bash
    vercel --prod
-   \`\`\`
+   ```
 
 ### Docker Deployment
 
 1. **Build the image**
-   \`\`\`bash
+   ```bash
    docker build -t pulsepilot-backend .
-   \`\`\`
+   ```
 
 2. **Run the container**
-   \`\`\`bash
+   ```bash
    docker run -p 8000:8000 --env-file .env pulsepilot-backend
-   \`\`\`
+   ```
 
 ## 📚 API Documentation
 
@@ -149,7 +150,7 @@ The system uses ARQ for background processing:
 
 ## 🧪 Testing
 
-\`\`\`bash
+```bash
 # Run tests
 pytest
 
@@ -158,7 +159,7 @@ pytest --cov=.
 
 # Run specific test file
 pytest tests/test_api.py
-\`\`\`
+```
 
 ## 🔒 Security
 

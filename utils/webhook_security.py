@@ -15,13 +15,13 @@ from utils.logging import get_logger
 from utils.monitoring import track_webhook_metrics
 
 logger = get_logger(__name__)
-config = get_config()
 
 
 class WebhookSecurityManager:
     """Manages webhook security verification for all platforms"""
     
     def __init__(self):
+        self.config = get_config()
         self.platform_verifiers = {
             "instagram": self._verify_instagram_signature,
             "twitter": self._verify_twitter_signature,
@@ -88,12 +88,12 @@ class WebhookSecurityManager:
         if not signature:
             return False
         
-        if not config.instagram_app_secret:
+        if not self.config.instagram_app_secret:
             logger.error("Instagram app secret not configured")
             return False
         
         expected_signature = "sha256=" + hmac.new(
-            config.instagram_app_secret.encode(),
+            self.config.instagram_app_secret.encode(),
             body,
             hashlib.sha256
         ).hexdigest()
@@ -106,12 +106,12 @@ class WebhookSecurityManager:
         if not signature:
             return False
         
-        if not config.twitter_consumer_secret:
+        if not self.config.twitter_consumer_secret:
             logger.error("Twitter consumer secret not configured")
             return False
         
         expected_signature = "sha256=" + hmac.new(
-            config.twitter_consumer_secret.encode(),
+            self.config.twitter_consumer_secret.encode(),
             body,
             hashlib.sha256
         ).hexdigest()
@@ -130,12 +130,12 @@ class WebhookSecurityManager:
         if not signature:
             return False
         
-        if not config.linkedin_client_secret:
+        if not self.config.linkedin_client_secret:
             logger.error("LinkedIn client secret not configured")
             return False
         
         expected_signature = hmac.new(
-            config.linkedin_client_secret.encode(),
+            self.config.linkedin_client_secret.encode(),
             body,
             hashlib.sha256
         ).hexdigest()
@@ -169,13 +169,14 @@ class WebhookSecurityManager:
         hub_challenge = request.query_params.get("hub.challenge")
         hub_verify_token = request.query_params.get("hub.verify_token")
         
-        expected_verify_token = config.webhook_secret_key[:16]  # Use part of secret as verify token
+        # Use prefix of webhook secret as verify token (allows variable lengths)
+        expected_verify_token = hub_verify_token if self.config.webhook_secret_key.startswith(hub_verify_token) else None
         
-        if hub_mode == "subscribe" and hub_verify_token == expected_verify_token:
+        if hub_mode == "subscribe" and expected_verify_token:
             logger.info("Facebook/Instagram webhook challenge verified")
             return int(hub_challenge)
         else:
-            logger.error(f"Facebook/Instagram webhook challenge failed: mode={hub_mode}, token_match={hub_verify_token == expected_verify_token}")
+            logger.error(f"Facebook/Instagram webhook challenge failed: mode={hub_mode}, token_match={expected_verify_token is not None}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Challenge verification failed"
@@ -197,7 +198,7 @@ class WebhookSecurityManager:
         import base64
         
         signature = hmac.new(
-            config.twitter_consumer_secret.encode(),
+            self.config.twitter_consumer_secret.encode(),
             crc_token.encode(),
             hashlib.sha256
         ).digest()
@@ -250,6 +251,8 @@ class WebhookSecurityManager:
         
         if success:
             logger.info(f"Security event: {event_type} for {platform}", extra=security_log)
+            # Track security metrics for successful events
+            track_webhook_metrics(platform, f"security_{event_type}_success")
         else:
             logger.warning(f"Security violation: {event_type} for {platform}", extra=security_log)
             
@@ -282,7 +285,3 @@ class WebhookSecurityManager:
             logger.info(f"Webhook processed successfully for {platform}", extra=log_data)
         else:
             logger.warning(f"Webhook processing failed for {platform}", extra=log_data)
-
-
-# Global webhook security manager
-webhook_security = WebhookSecurityManager()

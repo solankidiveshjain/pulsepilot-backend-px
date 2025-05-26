@@ -4,7 +4,8 @@ Centralized configuration management with strict validation
 
 import os
 from typing import Optional
-from pydantic import BaseSettings, validator, Field
+from pydantic import validator, Field
+from pydantic_settings import BaseSettings
 from functools import lru_cache
 import logging
 

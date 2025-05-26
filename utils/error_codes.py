@@ -86,3 +86,44 @@ ERROR_MESSAGES = {
     ErrorCode.SYSTEM_CONFIGURATION_ERROR: "System configuration error",
     ErrorCode.SYSTEM_INTERNAL_ERROR: "Internal system error"
 }
+
+class ErrorDetail:
+    """Wrapper for structured error information"""
+    def __init__(self, code: str, message: str, status_code: int):
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+
+class PlatformError:
+    """Platform-related error codes"""
+    PLATFORM_AUTH_FAILED = ErrorDetail(
+        ErrorCode.PLATFORM_AUTH_FAILED.value,
+        ERROR_MESSAGES[ErrorCode.PLATFORM_AUTH_FAILED],
+        401
+    )
+    WEBHOOK_SIGNATURE_INVALID = ErrorDetail(
+        "WEBHOOK_SIGNATURE_INVALID",
+        ERROR_MESSAGES[ErrorCode.PLATFORM_WEBHOOK_INVALID],
+        401
+    )
+
+class BillingError:
+    """Billing-related error codes"""
+    QUOTA_EXCEEDED = ErrorDetail(
+        ErrorCode.BILLING_QUOTA_EXCEEDED.value,
+        ERROR_MESSAGES[ErrorCode.BILLING_QUOTA_EXCEEDED],
+        429
+    )
+    PAYMENT_REQUIRED = ErrorDetail(
+        ErrorCode.BILLING_PAYMENT_REQUIRED.value,
+        ERROR_MESSAGES[ErrorCode.BILLING_PAYMENT_REQUIRED],
+        402
+    )
+
+class ValidationError:
+    """Validation-related error codes"""
+    INVALID_PAYLOAD = ErrorDetail(
+        "VALIDATION_INVALID_PAYLOAD",
+        "Invalid payload",
+        422
+    )

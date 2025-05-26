@@ -4,7 +4,11 @@ Standardized RAG prompt templates with unit testing support
 
 from typing import List, Dict, Any
 from pydantic import BaseModel
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain.prompts.chat import (
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
 
 
 class RAGContext(BaseModel):

@@ -142,7 +142,7 @@ class WebhookIdempotencyService:
         async with get_session() as db:
             # Try to find existing comment by external_id and platform
             stmt = select(Comment).where(
-                Comment.metadata['external_id'].astext == external_id,
+                Comment.metadata_json['external_id'] == external_id,
                 Comment.platform == platform,
                 Comment.team_id == team_id
             )

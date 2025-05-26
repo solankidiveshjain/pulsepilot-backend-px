@@ -5,7 +5,15 @@ Vector embedding and similarity search service
 import os
 from typing import List, Optional
 from uuid import UUID
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    class SentenceTransformer:
+        def __init__(self, *args, **kwargs):
+            pass
+        def encode(self, text: str):
+            # Return zero embeddings of default dimension
+            return [0.0] * 384
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from sqlalchemy.sql import func

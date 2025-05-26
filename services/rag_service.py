@@ -12,6 +12,7 @@ from services.vector_service import VectorService
 from services.llm_service import LLMService
 from utils.database import get_session
 from utils.logging import get_logger
+from services.rag_prompts import rag_prompt_composer
 
 logger = get_logger(__name__)
 
@@ -33,7 +34,8 @@ class RAGService:
         
         # 1. Generate embedding for the comment if not exists
         if not comment.embedding:
-            embedding = await self.vector_service.generate_embedding(comment.message or "")
+            # Generate embedding for the comment
+            embedding = self.vector_service.generate_embedding(comment.message or "")
             comment.embedding = embedding
         
         # 2. Find similar comments with successful replies
@@ -59,7 +61,7 @@ class RAGService:
         )
         
         # 5. Generate suggestions using standardized prompts
-        suggestions = await self.llm_service.generate_reply_suggestions_with_standardized_rag(
+        suggestions = self.llm_service.generate_reply_suggestions_with_standardized_rag(
             rag_context=rag_context,
             team_id=team_id
         )

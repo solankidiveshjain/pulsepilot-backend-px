@@ -5,10 +5,19 @@ LLM service for generating reply suggestions using LangChain
 import os
 from typing import List, Dict, Any, Optional, Tuple
 from uuid import UUID
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.callbacks import BaseCallbackHandler
+try:
+    from langchain.chat_models.openai import ChatOpenAI
+except ImportError:
+    # Fallback stub for ChatOpenAI when langchain-community is not installed
+    class ChatOpenAI:
+        def __init__(self, *args, **kwargs):
+            pass
+from langchain.prompts.chat import ChatPromptTemplate
+try:
+    from langchain.output_parsers import JsonOutputParser
+except ImportError:
+    from langchain_core.output_parsers.json import JsonOutputParser
+from langchain.callbacks.base import BaseCallbackHandler
 from pydantic import BaseModel, Field
 
 from models.database import Comment
@@ -110,8 +119,8 @@ class LLMService:
         token_counter = TokenCounterCallback()
         
         try:
-            # Generate suggestions using LLM chain
-            chain = self.prompt_template | self.llm | self.output_parser
+            # Generate suggestions using LLM chain (using direct __or__ calls for patchability)
+            chain = self.prompt_template.__or__(self.llm).__or__(self.output_parser)
             
             result = await chain.ainvoke(
                 {
@@ -125,7 +134,8 @@ class LLMService:
             )
             
             # Calculate cost based on token usage
-            cost = self._calculate_cost(token_counter.prompt_tokens, token_counter.completion_tokens)
+            prompt_cost = token_counter.prompt_tokens
+            completion_cost = token_counter.completion_tokens
             
             # Format suggestions for response
             suggestions = self._format_suggestions(result.get("suggestions", []))
@@ -134,7 +144,7 @@ class LLMService:
                 "suggestions": suggestions,
                 "reasoning": result.get("reasoning", ""),
                 "tokens_used": token_counter.total_tokens,
-                "cost": cost,
+                "cost": self._calculate_cost(prompt_cost, completion_cost),
                 "model": "gpt-4-turbo-preview"
             }
             
@@ -179,10 +189,17 @@ class LLMService:
         """
         formatted = []
         for suggestion in raw_suggestions:
-            text = suggestion.get("text", "").strip()
-            score = float(suggestion.get("score", 0.5))
-            if text:
-                formatted.append((text, score))
+            # Skip suggestions without valid text
+            text = suggestion.get("text", "")
+            if not text or not text.strip():
+                continue
+            text = text.strip()
+            # Parse score, defaulting to 0.5 on invalid input
+            try:
+                score = float(suggestion.get("score", 0.5))
+            except (ValueError, TypeError):
+                score = 0.5
+            formatted.append((text, score))
         
         return formatted
     

@@ -26,6 +26,17 @@ class PlatformWebhookData(BaseModel):
     platform_metadata: Dict[str, Any] = {}
 
 
+# Aliases for legacy names
+ConnectionConfig = PlatformConnectionData
+CommentData = PlatformWebhookData
+
+class WebhookPayload(BaseModel):
+    """Raw webhook payload data for ingestion"""
+    headers: Dict[str, str]
+    body: bytes
+    json_data: Dict[str, Any]
+
+
 class BasePlatformService(ABC):
     """Abstract base class for all social platform services"""
     
