@@ -69,6 +69,16 @@ async def generate_embedding(
         request.comment_id
     )
     
+    # Track token usage for embedding generation
+    from utils.token_tracker import TokenTracker
+    token_tracker = TokenTracker()
+
+    await token_tracker.track_embedding_usage(
+        team_id=comment.team_id,
+        text_length=len(comment.message),
+        embedding_model="all-MiniLM-L6-v2"
+    )
+    
     return EmbeddingResponse(
         comment_id=comment.comment_id,
         status="queued",

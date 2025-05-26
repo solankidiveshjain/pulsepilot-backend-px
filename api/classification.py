@@ -74,6 +74,16 @@ async def classify_comment_endpoint(
         request.comment_id
     )
     
+    # Track token usage for classification
+    from utils.token_tracker import TokenTracker
+    token_tracker = TokenTracker()
+
+    await token_tracker.track_classification_usage(
+        team_id=comment.team_id,
+        text_length=len(comment.message),
+        classification_types=["sentiment", "emotion", "category"]
+    )
+    
     return ClassificationResponse(
         comment_id=comment.comment_id,
         status="queued"

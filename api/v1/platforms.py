@@ -55,7 +55,6 @@ async def start_platform_onboarding(
 async def connect_platform(
     platform: str,
     request: TokenExchangeRequest,
-    db: AsyncSession = Depends(get_db),
     current_team: Team = Depends(get_current_team)
 ) -> ConnectionResponse:
     """Complete platform connection using OAuth code"""
@@ -63,37 +62,14 @@ async def connect_platform(
     try:
         platform_service = get_platform_service(platform)
         
-        # Exchange code for tokens
-        connection_config = await platform_service.exchange_token(current_team.team_id, request)
-        
-        # Connect to platform
-        connection_data = await platform_service.connect(current_team.team_id, connection_config)
-        
-        # Store connection in database
-        from models.database import SocialConnection
-        from datetime import datetime
-        
-        connection = SocialConnection(
+        # Let platform service handle the entire connection process
+        connection_response = await platform_service.complete_connection(
             team_id=current_team.team_id,
-            platform=platform,
-            status=connection_data["status"],
-            access_token=connection_data["access_token"],
-            refresh_token=connection_data.get("refresh_token"),
-            token_expires=connection_data.get("token_expires"),
-            metadata=connection_data.get("metadata", {})
+            auth_code=request.code,
+            state=request.state
         )
         
-        db.add(connection)
-        await db.commit()
-        await db.refresh(connection)
-        
-        return ConnectionResponse(
-            connection_id=connection.connection_id,
-            platform=platform,
-            status=connection_data["status"],
-            created_at=connection.created_at,
-            expires_at=connection.token_expires
-        )
+        return connection_response
         
     except Exception as e:
         raise handle_platform_error(e, platform)

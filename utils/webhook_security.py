@@ -7,6 +7,8 @@ import hashlib
 import json
 from typing import Dict, Any, Optional
 from fastapi import Request, HTTPException, status
+import base64
+from datetime import datetime
 
 from utils.config import get_config
 from utils.logging import get_logger
@@ -139,6 +141,120 @@ class WebhookSecurityManager:
         ).hexdigest()
         
         return hmac.compare_digest(signature, expected_signature)
+    
+    async def handle_webhook_challenge(
+        self,
+        platform: str,
+        request: Request
+    ) -> Any:
+        """Handle webhook subscription challenges for all platforms"""
+        
+        if platform.lower() in ["instagram", "facebook"]:
+            return await self._handle_facebook_challenge(request)
+        elif platform.lower() == "twitter":
+            return await self._handle_twitter_challenge(request)
+        elif platform.lower() == "youtube":
+            return await self._handle_youtube_challenge(request)
+        elif platform.lower() == "linkedin":
+            return await self._handle_linkedin_challenge(request)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Challenge handling not supported for {platform}"
+            )
+
+    async def _handle_facebook_challenge(self, request: Request) -> int:
+        """Handle Facebook/Instagram webhook challenge"""
+        hub_mode = request.query_params.get("hub.mode")
+        hub_challenge = request.query_params.get("hub.challenge")
+        hub_verify_token = request.query_params.get("hub.verify_token")
+        
+        expected_verify_token = config.webhook_secret_key[:16]  # Use part of secret as verify token
+        
+        if hub_mode == "subscribe" and hub_verify_token == expected_verify_token:
+            logger.info("Facebook/Instagram webhook challenge verified")
+            return int(hub_challenge)
+        else:
+            logger.error(f"Facebook/Instagram webhook challenge failed: mode={hub_mode}, token_match={hub_verify_token == expected_verify_token}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Challenge verification failed"
+            )
+
+    async def _handle_twitter_challenge(self, request: Request) -> Dict[str, str]:
+        """Handle Twitter webhook challenge (CRC)"""
+        crc_token = request.query_params.get("crc_token")
+        
+        if not crc_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing crc_token parameter"
+            )
+        
+        # Create CRC response
+        import hmac
+        import hashlib
+        import base64
+        
+        signature = hmac.new(
+            config.twitter_consumer_secret.encode(),
+            crc_token.encode(),
+            hashlib.sha256
+        ).digest()
+        
+        response_token = base64.b64encode(signature).decode()
+        
+        logger.info("Twitter webhook CRC challenge verified")
+        return {"response_token": f"sha256={response_token}"}
+
+    async def _handle_youtube_challenge(self, request: Request) -> str:
+        """Handle YouTube PubSubHubbub challenge"""
+        hub_challenge = request.query_params.get("hub.challenge")
+        hub_mode = request.query_params.get("hub.mode")
+        
+        if hub_mode == "subscribe" and hub_challenge:
+            logger.info("YouTube webhook challenge verified")
+            return hub_challenge
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid YouTube challenge"
+            )
+
+    async def _handle_linkedin_challenge(self, request: Request) -> Dict[str, str]:
+        """Handle LinkedIn webhook challenge"""
+        # LinkedIn doesn't use standard challenge-response
+        # Return success for subscription verification
+        logger.info("LinkedIn webhook verification")
+        return {"status": "verified"}
+
+    async def log_security_event(
+        self,
+        platform: str,
+        event_type: str,
+        request: Request,
+        success: bool,
+        details: Dict[str, Any] = None
+    ):
+        """Log security events for monitoring and alerting"""
+        
+        security_log = {
+            "platform": platform,
+            "event_type": event_type,
+            "success": success,
+            "ip_address": request.client.host if request.client else None,
+            "user_agent": request.headers.get("user-agent"),
+            "timestamp": datetime.utcnow().isoformat(),
+            "details": details or {}
+        }
+        
+        if success:
+            logger.info(f"Security event: {event_type} for {platform}", extra=security_log)
+        else:
+            logger.warning(f"Security violation: {event_type} for {platform}", extra=security_log)
+            
+            # Track security metrics
+            track_webhook_metrics(platform, f"security_{event_type}_{'success' if success else 'failure'}")
     
     async def log_webhook_attempt(
         self,

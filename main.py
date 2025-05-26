@@ -25,8 +25,15 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager with proper error handling"""
-    # Startup
+    """Application lifespan manager with fail-fast configuration"""
+    # FAIL-FAST: Validate configuration before any other startup
+    try:
+        config = validate_config_on_startup()
+    except Exception as e:
+        logger.error(f"STARTUP FAILED: {str(e)}")
+        raise SystemExit(1)
+    
+    # Continue with rest of startup...
     try:
         setup_logging()
         logger.info("Starting PulsePilot Backend API")
@@ -34,17 +41,13 @@ async def lifespan(app: FastAPI):
         # Initialize Sentry for error tracking
         init_sentry()
         
-        # Validate configuration
-        config = validate_config_on_startup()
-        logger.info("Configuration validated successfully")
-        
         # Initialize database
         await init_db()
         logger.info("Database initialized successfully")
         
     except Exception as e:
         logger.error(f"Application startup failed: {str(e)}")
-        raise
+        raise SystemExit(1)
     
     yield
     
@@ -65,6 +68,10 @@ app = FastAPI(
 # Add middleware in correct order
 app.add_middleware(GlobalExceptionHandler)
 app.add_middleware(LoggingMiddleware)
+
+# Add token tracking middleware
+from middleware.token_tracking_middleware import TokenTrackingMiddleware
+app.add_middleware(TokenTrackingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

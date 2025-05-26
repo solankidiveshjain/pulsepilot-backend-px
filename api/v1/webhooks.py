@@ -8,6 +8,7 @@ from utils.task_queue import task_queue
 from schemas.responses import WebhookResponse
 from utils.exceptions import handle_platform_error
 from utils.logging import get_logger
+from typing import Dict, Any
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -18,7 +19,7 @@ async def handle_platform_webhook(
     platform: str,
     request: Request
 ) -> WebhookResponse:
-    """Handle webhook from social media platform with security verification"""
+    """Handle webhook from social media platform with strict validation"""
     
     try:
         # Get raw body and headers
@@ -35,21 +36,22 @@ async def handle_platform_webhook(
                 detail="Invalid webhook signature"
             )
         
-        # Parse JSON payload
+        # Parse and validate JSON payload with platform-specific models
         try:
             json_data = await request.json()
+            validated_payload = await _validate_webhook_payload(platform, json_data)
         except Exception as e:
-            await webhook_security.log_webhook_attempt(platform, request, False, f"Invalid JSON: {str(e)}")
+            await webhook_security.log_webhook_attempt(platform, request, False, f"Invalid payload: {str(e)}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid JSON payload"
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid webhook payload: {str(e)}"
             )
         
-        # Prepare payload data for background processing
+        # Prepare validated payload data for background processing
         payload_data = {
             "headers": headers,
             "body": body,
-            "json_data": json_data,
+            "validated_payload": validated_payload.dict(),
             "team_id": None  # This should be determined from webhook content
         }
         
@@ -60,8 +62,8 @@ async def handle_platform_webhook(
         
         return WebhookResponse(
             status="accepted",
-            message=f"Webhook from {platform} queued for processing",
-            comments_processed=0,  # Will be updated by background job
+            message=f"Webhook from {platform} validated and queued",
+            comments_processed=0,
             job_id=job_id
         )
         
@@ -70,6 +72,59 @@ async def handle_platform_webhook(
     except Exception as e:
         await webhook_security.log_webhook_attempt(platform, request, False, str(e))
         raise handle_platform_error(e, platform)
+
+
+@router.get("/{platform}/challenge")
+async def handle_webhook_challenge(
+    platform: str,
+    request: Request
+):
+    """Handle webhook subscription challenges for all platforms"""
+    
+    try:
+        response = await webhook_security.handle_webhook_challenge(platform, request)
+        
+        await webhook_security.log_security_event(
+            platform=platform,
+            event_type="challenge_verification",
+            request=request,
+            success=True
+        )
+        
+        return response
+        
+    except Exception as e:
+        await webhook_security.log_security_event(
+            platform=platform,
+            event_type="challenge_verification",
+            request=request,
+            success=False,
+            details={"error": str(e)}
+        )
+        raise
+
+
+async def _validate_webhook_payload(platform: str, json_data: Dict[str, Any]):
+    """Validate webhook payload with platform-specific Pydantic models"""
+    from schemas.webhook_schemas import (
+        InstagramWebhookPayload,
+        TwitterWebhookPayload,
+        YouTubeWebhookPayload,
+        LinkedInWebhookPayload
+    )
+    
+    validators = {
+        "instagram": InstagramWebhookPayload,
+        "twitter": TwitterWebhookPayload,
+        "youtube": YouTubeWebhookPayload,
+        "linkedin": LinkedInWebhookPayload
+    }
+    
+    validator_class = validators.get(platform.lower())
+    if not validator_class:
+        raise ValueError(f"No validator for platform: {platform}")
+    
+    return validator_class(**json_data)
 
 
 @router.get("/{platform}/verify")

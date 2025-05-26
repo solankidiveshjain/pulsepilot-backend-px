@@ -29,7 +29,7 @@ class RAGService:
         team_id: UUID,
         limit_similar: int = 5
     ) -> Dict[str, Any]:
-        """Generate reply suggestions using RAG approach"""
+        """Generate reply suggestions using standardized RAG approach"""
         
         # 1. Generate embedding for the comment if not exists
         if not comment.embedding:
@@ -46,11 +46,21 @@ class RAGService:
         # 3. Get team persona and guidelines
         persona_guidelines = await self._get_team_persona(team_id)
         
-        # 4. Generate suggestions using LLM with RAG context
-        suggestions = await self.llm_service.generate_reply_suggestions_with_rag(
-            comment=comment,
-            similar_contexts=similar_contexts,
+        # 4. Create standardized RAG context
+        from services.rag_prompts import RAGContext, rag_prompt_composer
+        
+        rag_context = RAGContext(
+            similar_comments=similar_contexts,
             persona_guidelines=persona_guidelines,
+            platform=comment.platform,
+            comment_text=comment.message,
+            author=comment.author or "Unknown",
+            max_length=2000 if comment.platform != "twitter" else 280
+        )
+        
+        # 5. Generate suggestions using standardized prompts
+        suggestions = await self.llm_service.generate_reply_suggestions_with_standardized_rag(
+            rag_context=rag_context,
             team_id=team_id
         )
         

@@ -106,6 +106,44 @@ class InstagramService(BasePlatformService):
         response.raise_for_status()
         return response.json()
     
+    async def complete_connection(self, team_id: UUID, auth_code: str, state: str) -> Dict[str, Any]:
+        """Complete OAuth connection flow"""
+        from services.platforms.connection_manager import connection_manager
+        
+        # Exchange code for tokens (implement OAuth flow)
+        token_data = await self._exchange_code_for_tokens(auth_code)
+        
+        # Validate token
+        is_valid = await self.validate_token(token_data["access_token"])
+        if not is_valid:
+            raise ValueError("Invalid access token received")
+        
+        connection_data = {
+            "status": "connected",
+            "access_token": token_data["access_token"],
+            "refresh_token": token_data.get("refresh_token"),
+            "token_expires": token_data.get("expires_at"),
+            "metadata": {"oauth_state": state}
+        }
+        
+        return await connection_manager.store_connection(team_id, self.platform_name, connection_data)
+
+    async def _exchange_code_for_tokens(self, auth_code: str) -> Dict[str, Any]:
+        """Exchange authorization code for access tokens"""
+        # Implement Instagram OAuth token exchange
+        response = await self.client.post(
+            "https://api.instagram.com/oauth/access_token",
+            data={
+                "client_id": self.config.instagram_app_id,
+                "client_secret": self.config.instagram_app_secret,
+                "grant_type": "authorization_code",
+                "redirect_uri": "your_redirect_uri",  # Should come from config
+                "code": auth_code
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+    
     async def _verify_signature(self, body: bytes, headers: Dict[str, str]) -> bool:
         """Verify Instagram webhook signature"""
         signature = headers.get("x-hub-signature-256", "")

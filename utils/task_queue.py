@@ -54,6 +54,13 @@ class TaskQueue:
         logger.info(f"Enqueued reply submission job {job.job_id}")
         return job.job_id
 
+    async def enqueue_suggestion_generation(self, comment_id: UUID, team_id: UUID) -> str:
+        """Enqueue AI suggestion generation task"""
+        pool = await self.get_pool()
+        job = await pool.enqueue_job('generate_suggestions_task', str(comment_id), str(team_id))
+        logger.info(f"Enqueued suggestion generation job {job.job_id} for comment {comment_id}")
+        return job.job_id
+
 
 # Global task queue instance
 task_queue = TaskQueue()

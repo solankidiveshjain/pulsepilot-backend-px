@@ -3,17 +3,19 @@ Reply submission endpoints
 """
 
 from uuid import UUID
-from typing import List
+from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
+from datetime import datetime
 
 from models.database import Comment, Reply, User, Team
 from utils.database import get_db
 from utils.auth import get_current_team, get_current_user
 from services.social_platforms import get_platform_service
 from tasks.reply_tasks import submit_reply_to_platform
+from utils.task_queue import task_queue
 
 
 router = APIRouter()
@@ -36,6 +38,18 @@ class ReplyResponse(BaseModel):
     reply_id: UUID
     message: str
     status: str
+    submitted_at: datetime = None
+
+
+class BulkReplyValidatedRequest(BaseModel):
+    replies: List[BulkReplyItem]
+
+
+class BulkReplyValidatedResponse(BaseModel):
+    total_submitted: int
+    successful: List[ReplyResponse]
+    failed: List[Dict[str, Any]]
+    job_ids: List[str]
 
 
 @router.post("/{team_id}/comments/{comment_id}/reply")
@@ -82,6 +96,22 @@ async def submit_reply(
     await db.commit()
     await db.refresh(reply)
     
+    # Track token usage for reply processing
+    from utils.token_tracker import TokenTracker
+    token_tracker = TokenTracker()
+
+    await token_tracker.track_usage(
+        team_id=team_id,
+        usage_type="reply_processing",
+        tokens_used=len(request.message.split()),  # Estimate based on message length
+        metadata={
+            "operation": "reply_submission",
+            "comment_id": str(comment_id),
+            "message_length": len(request.message),
+            "platform": comment.platform
+        }
+    )
+    
     # Submit reply to platform in background
     background_tasks.add_task(
         submit_reply_to_platform,
@@ -100,13 +130,13 @@ async def submit_reply(
 @router.post("/{team_id}/comments/bulk-reply")
 async def submit_bulk_replies(
     team_id: UUID,
-    request: BulkReplyRequest,
+    request: BulkReplyValidatedRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_team: Team = Depends(get_current_team),
     current_user: User = Depends(get_current_user)
-) -> List[ReplyResponse]:
-    """Submit replies to multiple comments"""
+) -> BulkReplyValidatedResponse:
+    """Submit replies to multiple comments with strict validation"""
     
     # Verify team access
     if current_team.team_id != team_id:
@@ -115,48 +145,62 @@ async def submit_bulk_replies(
             detail="Access denied to team"
         )
     
-    responses = []
+    successful_replies = []
+    failed_replies = []
+    job_ids = []
     
     for reply_item in request.replies:
-        # Find comment
-        stmt = select(Comment).where(
-            Comment.comment_id == reply_item.comment_id,
-            Comment.team_id == team_id
-        )
-        result = await db.execute(stmt)
-        comment = result.scalar_one_or_none()
-        
-        if not comment:
-            responses.append(ReplyResponse(
-                reply_id=reply_item.comment_id,  # Using comment_id as placeholder
-                message=reply_item.message,
-                status="error: comment not found"
+        try:
+            # Validate comment exists and belongs to team
+            stmt = select(Comment).where(
+                Comment.comment_id == reply_item.comment_id,
+                Comment.team_id == team_id
+            )
+            result = await db.execute(stmt)
+            comment = result.scalar_one_or_none()
+            
+            if not comment:
+                failed_replies.append({
+                    "comment_id": str(reply_item.comment_id),
+                    "error": "Comment not found or access denied"
+                })
+                continue
+            
+            # Create reply record
+            reply = Reply(
+                comment_id=reply_item.comment_id,
+                user_id=current_user.user_id,
+                message=reply_item.message
+            )
+            
+            db.add(reply)
+            await db.commit()
+            await db.refresh(reply)
+            
+            # Queue reply submission
+            job_id = await task_queue.enqueue_reply_submission(
+                reply.reply_id, 
+                comment.platform, 
+                team_id
+            )
+            job_ids.append(job_id)
+            
+            successful_replies.append(ReplyResponse(
+                reply_id=reply.reply_id,
+                message=reply.message,
+                status="queued",
+                submitted_at=reply.created_at
             ))
-            continue
-        
-        # Create reply record
-        reply = Reply(
-            comment_id=reply_item.comment_id,
-            user_id=current_user.user_id,
-            message=reply_item.message
-        )
-        
-        db.add(reply)
-        await db.commit()
-        await db.refresh(reply)
-        
-        # Submit reply to platform in background
-        background_tasks.add_task(
-            submit_reply_to_platform,
-            reply.reply_id,
-            comment.platform,
-            team_id
-        )
-        
-        responses.append(ReplyResponse(
-            reply_id=reply.reply_id,
-            message=reply.message,
-            status="submitted"
-        ))
+            
+        except Exception as e:
+            failed_replies.append({
+                "comment_id": str(reply_item.comment_id),
+                "error": str(e)
+            })
     
-    return responses
+    return BulkReplyValidatedResponse(
+        total_submitted=len(successful_replies),
+        successful=successful_replies,
+        failed=failed_replies,
+        job_ids=job_ids
+    )

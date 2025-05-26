@@ -73,6 +73,62 @@ async def submit_reply_task(ctx, reply_id: str, platform: str, team_id: str) -> 
         raise
 
 
+async def generate_suggestions_task(ctx, comment_id: str, team_id: str) -> Dict[str, Any]:
+    """Generate AI suggestions in background"""
+    try:
+        from services.rag_service import RAGService
+        from models.database import Comment, AiSuggestion
+        from utils.database import get_session
+        from utils.token_tracker import TokenTracker
+        from sqlalchemy import select
+        
+        rag_service = RAGService()
+        token_tracker = TokenTracker()
+        
+        async with get_session() as db:
+            # Get comment
+            stmt = select(Comment).where(Comment.comment_id == UUID(comment_id))
+            result = await db.execute(stmt)
+            comment = result.scalar_one_or_none()
+            
+            if not comment:
+                raise ValueError(f"Comment {comment_id} not found")
+            
+            # Generate suggestions using RAG
+            suggestions_data = await rag_service.generate_contextual_suggestions(
+                comment=comment,
+                team_id=UUID(team_id)
+            )
+            
+            # Track token usage
+            await token_tracker.track_llm_usage(
+                team_id=UUID(team_id),
+                model_name="gpt-4-turbo-preview",
+                prompt_tokens=suggestions_data.get("tokens_used", 0) // 2,
+                completion_tokens=suggestions_data.get("tokens_used", 0) // 2,
+                total_tokens=suggestions_data.get("tokens_used", 0),
+                operation="suggestion_generation"
+            )
+            
+            # Save suggestions to database
+            for suggestion_text, score in suggestions_data["suggestions"]:
+                suggestion = AiSuggestion(
+                    comment_id=UUID(comment_id),
+                    suggested_reply=suggestion_text,
+                    score=score
+                )
+                db.add(suggestion)
+            
+            await db.commit()
+            
+            logger.info(f"Generated {len(suggestions_data['suggestions'])} suggestions for comment {comment_id}")
+            return suggestions_data
+            
+    except Exception as e:
+        logger.error(f"Suggestion generation failed: {str(e)}")
+        raise
+
+
 class WorkerSettings:
     """ARQ worker settings"""
     functions = [
@@ -80,6 +136,7 @@ class WorkerSettings:
         generate_embedding_task,
         classify_comment_task,
         submit_reply_task,
+        generate_suggestions_task,
     ]
     on_startup = startup
     on_shutdown = shutdown

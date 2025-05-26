@@ -6,6 +6,9 @@ import os
 from typing import Optional
 from pydantic import BaseSettings, validator, Field
 from functools import lru_cache
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Config(BaseSettings):
@@ -100,40 +103,58 @@ def get_config() -> Config:
 
 
 def validate_config_on_startup():
-    """Validate configuration at application startup with detailed checks"""
+    """Validate configuration at application startup with fail-fast approach"""
     try:
         config = get_config()
         
-        # Test critical connections
-        critical_configs = {
-            "Database": config.postgres_url,
-            "Supabase": config.supabase_url,
-            "OpenAI": config.openai_api_key,
-            "Redis": config.redis_url,
+        # Critical secrets that must be present
+        critical_secrets = {
+            "POSTGRES_URL": config.postgres_url,
+            "SUPABASE_URL": config.supabase_url,
+            "SUPABASE_JWT_SECRET": config.supabase_jwt_secret,
+            "SUPABASE_SERVICE_ROLE_KEY": config.supabase_service_role_key,
+            "OPENAI_API_KEY": config.openai_api_key,
+            "WEBHOOK_SECRET_KEY": config.webhook_secret_key,
+            "JWT_SECRET_KEY": config.jwt_secret_key,
         }
         
-        missing_configs = [name for name, value in critical_configs.items() if not value]
+        # Check for missing critical secrets
+        missing_critical = [name for name, value in critical_secrets.items() if not value or len(value.strip()) == 0]
+        if missing_critical:
+            raise RuntimeError(f"CRITICAL: Missing required secrets: {', '.join(missing_critical)}. Application cannot start.")
         
-        if missing_configs:
-            raise ValueError(f"Missing critical configuration: {', '.join(missing_configs)}")
-        
-        # Validate platform secrets
+        # Platform secrets validation
         platform_secrets = {
-            "Instagram": [config.instagram_app_id, config.instagram_app_secret],
-            "Twitter": [config.twitter_consumer_key, config.twitter_consumer_secret],
-            "YouTube": [config.youtube_client_id, config.youtube_client_secret],
-            "LinkedIn": [config.linkedin_client_id, config.linkedin_client_secret],
+            "INSTAGRAM_APP_SECRET": config.instagram_app_secret,
+            "TWITTER_CONSUMER_SECRET": config.twitter_consumer_secret,
+            "YOUTUBE_CLIENT_SECRET": config.youtube_client_secret,
+            "LINKEDIN_CLIENT_SECRET": config.linkedin_client_secret,
         }
         
-        missing_platform_secrets = []
-        for platform, secrets in platform_secrets.items():
-            if not all(secrets):
-                missing_platform_secrets.append(platform)
+        missing_platform = [name for name, value in platform_secrets.items() if not value or len(value.strip()) == 0]
+        if missing_platform:
+            raise RuntimeError(f"CRITICAL: Missing platform secrets: {', '.join(missing_platform)}. Webhook verification will fail.")
         
-        if missing_platform_secrets:
-            raise ValueError(f"Missing platform secrets for: {', '.join(missing_platform_secrets)}")
+        # Validate secret formats
+        if not config.openai_api_key.startswith('sk-'):
+            raise RuntimeError("CRITICAL: OPENAI_API_KEY must start with 'sk-'")
         
+        if not config.supabase_url.startswith('https://'):
+            raise RuntimeError("CRITICAL: SUPABASE_URL must be a valid HTTPS URL")
+        
+        if len(config.webhook_secret_key) < 32:
+            raise RuntimeError("CRITICAL: WEBHOOK_SECRET_KEY must be at least 32 characters")
+        
+        if len(config.jwt_secret_key) < 32:
+            raise RuntimeError("CRITICAL: JWT_SECRET_KEY must be at least 32 characters")
+        
+        # Test database connection format
+        if not any(config.postgres_url.startswith(prefix) for prefix in ['postgresql://', 'postgres://']):
+            raise RuntimeError("CRITICAL: POSTGRES_URL must be a valid PostgreSQL connection string")
+        
+        logger.info("All configuration validation passed")
         return config
         
     except Exception as e:
-        raise RuntimeError(f"Configuration validation failed: {str(e)}")
+        logger.error(f"CONFIGURATION VALIDATION FAILED: {str(e)}")
+        raise SystemExit(f"Application startup aborted: {str(e)}")
