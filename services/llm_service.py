@@ -159,3 +159,111 @@ class LLMService:
             
         except Exception as e:
             raise Exception(f"LLM generation failed: {str(e)}")
+
+    async def generate_reply_suggestions_with_rag(
+        self,
+        comment: Comment,
+        similar_contexts: List[Dict[str, Any]],
+        persona_guidelines: str,
+        team_id: UUID
+    ) -> Dict[str, Any]:
+        """Generate reply suggestions using RAG approach"""
+        
+        # Prepare similar contexts for prompt
+        context_examples = []
+        for ctx in similar_contexts:
+            context_examples.append(f"""
+Original Comment: "{ctx['comment_message']}"
+Platform: {ctx['platform']}
+Successful Reply: "{ctx['reply_message']}"
+Similarity Score: {ctx['similarity_score']:.2f}
+""")
+        
+        context_text = "\n".join(context_examples) if context_examples else "No similar examples found."
+        
+        # Enhanced prompt template for RAG
+        rag_prompt_template = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template(
+                """You are an AI assistant helping social media managers craft appropriate replies to comments using context from similar successful interactions.
+
+                Your task is to generate 3 different reply suggestions for the given comment, considering:
+                1. The tone and context of the original comment
+                2. The brand's persona and voice guidelines
+                3. Similar successful replies from the past (RAG context)
+                4. Platform-specific best practices
+                
+                Brand Persona & Guidelines:
+                {persona_guidelines}
+                
+                Similar Successful Interactions (for context):
+                {context_examples}
+                
+                Guidelines:
+                - Keep replies concise and engaging (under 280 chars for Twitter, under 2000 for others)
+                - Match the tone of the original comment appropriately
+                - Be helpful and add value
+                - Avoid controversial topics
+                - Include a call-to-action when appropriate
+                - Learn from the successful reply patterns shown above
+                
+                Return your response as JSON with this structure:
+                {{
+                    "suggestions": [
+                        {{"text": "reply text", "score": 0.9, "tone": "friendly", "reasoning": "why this works"}},
+                        {{"text": "reply text", "score": 0.8, "tone": "professional", "reasoning": "why this works"}},
+                        {{"text": "reply text", "score": 0.7, "tone": "casual", "reasoning": "why this works"}}
+                    ],
+                    "context_used": "how similar examples influenced suggestions",
+                    "reasoning": "overall approach explanation"
+                }}
+                """
+            ),
+            HumanMessagePromptTemplate.from_template(
+                """Original Comment: "{comment_text}"
+                Platform: {platform}
+                Author: {author}
+                
+                Generate 3 contextually-aware reply suggestions:"""
+            )
+        ])
+        
+        # Create token counter
+        token_counter = TokenCounterCallback()
+        
+        # Generate suggestions
+        chain = rag_prompt_template | self.llm | self.output_parser
+        
+        try:
+            result = await chain.ainvoke(
+                {
+                    "comment_text": comment.message,
+                    "platform": comment.platform,
+                    "author": comment.author or "Unknown",
+                    "persona_guidelines": persona_guidelines,
+                    "context_examples": context_text
+                },
+                config={"callbacks": [token_counter]}
+            )
+            
+            # Calculate cost (approximate pricing for GPT-4 Turbo)
+            cost = (token_counter.prompt_tokens * 0.00001) + (token_counter.completion_tokens * 0.00003)
+            
+            # Format suggestions
+            suggestions = []
+            for suggestion in result.get("suggestions", []):
+                suggestions.append((
+                    suggestion.get("text", ""),
+                    suggestion.get("score", 0.5)
+                ))
+        
+            return {
+                "suggestions": suggestions,
+                "reasoning": result.get("reasoning", ""),
+                "context_used": result.get("context_used", ""),
+                "tokens_used": token_counter.total_tokens,
+                "cost": cost,
+                "rag_contexts_count": len(similar_contexts)
+            }
+            
+        except Exception as e:
+            raise Exception(f"RAG-enhanced LLM generation failed: {str(e)}")

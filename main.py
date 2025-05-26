@@ -1,5 +1,5 @@
 """
-PulsePilot Backend API - Refactored with proper error handling and configuration
+PulsePilot Backend API - Refactored with modular routing and comprehensive error handling
 """
 
 import os
@@ -10,19 +10,15 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 import uvicorn
 
-from api.social import router as social_router
-from api.suggestions import router as suggestions_router
-from api.replies import router as replies_router
-from api.webhooks import router as webhooks_router
-from api.embeddings import router as embeddings_router
-from api.classification import router as classification_router
-from api.billing import router as billing_router
-from api.users import router as users_router
+# Import the new modular API
+from api.v1 import v1_router
 from utils.database import init_db
 from utils.config import validate_config_on_startup
 from utils.logging import setup_logging, get_logger
 from utils.middleware import LoggingMiddleware
 from utils.error_handler import GlobalExceptionHandler
+from utils.monitoring import init_sentry
+from schemas.responses import HealthResponse
 
 logger = get_logger(__name__)
 
@@ -34,6 +30,9 @@ async def lifespan(app: FastAPI):
     try:
         setup_logging()
         logger.info("Starting PulsePilot Backend API")
+        
+        # Initialize Sentry for error tracking
+        init_sentry()
         
         # Validate configuration
         config = validate_config_on_startup()
@@ -84,27 +83,53 @@ app.add_middleware(
 instrumentator = Instrumentator()
 instrumentator.instrument(app).expose(app)
 
-# Include routers
-app.include_router(social_router, prefix="/teams", tags=["Social Connections"])
-app.include_router(suggestions_router, prefix="/teams", tags=["Suggestions"])
-app.include_router(replies_router, prefix="/teams", tags=["Replies"])
-app.include_router(webhooks_router, prefix="/webhooks", tags=["Webhooks"])
-app.include_router(embeddings_router, prefix="/api/embeddings", tags=["Embeddings"])
-app.include_router(classification_router, prefix="/api", tags=["Classification"])
-app.include_router(billing_router, prefix="/api/tokens", tags=["Billing"])
-app.include_router(users_router, prefix="/api", tags=["Users"])
+# Include API routers
+app.include_router(v1_router, prefix="/api")
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "pulsepilot-backend"}
+@app.get("/health", response_model=HealthResponse)
+async def health_check() -> HealthResponse:
+    """Health check endpoint with dependency status"""
+    from datetime import datetime
+    
+    # Check dependencies
+    dependencies = {}
+    
+    try:
+        # Test database connection
+        from utils.database import get_session
+        async with get_session() as db:
+            await db.execute("SELECT 1")
+        dependencies["database"] = "healthy"
+    except Exception:
+        dependencies["database"] = "unhealthy"
+    
+    try:
+        # Test Redis connection
+        from utils.task_queue import task_queue
+        await task_queue.get_pool()
+        dependencies["redis"] = "healthy"
+    except Exception:
+        dependencies["redis"] = "unhealthy"
+    
+    return HealthResponse(
+        status="healthy",
+        service="pulsepilot-backend",
+        version="1.0.0",
+        timestamp=datetime.utcnow(),
+        dependencies=dependencies
+    )
 
 
 @app.get("/")
 async def root():
     """Root endpoint"""
-    return {"message": "PulsePilot Backend API", "version": "1.0.0"}
+    return {
+        "message": "PulsePilot Backend API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "health": "/health"
+    }
 
 
 if __name__ == "__main__":
