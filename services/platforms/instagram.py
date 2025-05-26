@@ -2,14 +2,13 @@
 Instagram platform service implementation
 """
 
-import os
 import hmac
 import hashlib
 from typing import Dict, Any, List
 from uuid import UUID
 import httpx
 
-from .base import BasePlatformService, ConnectionConfig, WebhookPayload, CommentData
+from .base import BasePlatformService, PlatformConnectionData, PlatformWebhookData
 from utils.config import get_config
 
 
@@ -25,54 +24,7 @@ class InstagramService(BasePlatformService):
     def platform_name(self) -> str:
         return "instagram"
     
-    async def connect(self, team_id: UUID, config: ConnectionConfig) -> Dict[str, Any]:
-        """Connect team to Instagram"""
-        # Validate token first
-        is_valid = await self.validate_token(config.access_token)
-        if not is_valid:
-            raise ValueError("Invalid Instagram access token")
-        
-        return {
-            "platform": self.platform_name,
-            "status": "connected",
-            "access_token": config.access_token,
-            "refresh_token": config.refresh_token,
-            "token_expires": config.token_expires,
-            "metadata": config.metadata or {}
-        }
-    
-    async def disconnect(self, team_id: UUID, connection_id: UUID) -> bool:
-        """Disconnect team from Instagram"""
-        # Instagram doesn't require special disconnect logic
-        return True
-    
-    async def ingest_webhook(self, payload: WebhookPayload) -> List[CommentData]:
-        """Process Instagram webhook and extract comments"""
-        # Verify signature
-        if not await self._verify_signature(payload.body, payload.headers):
-            raise ValueError("Invalid webhook signature")
-        
-        comments = []
-        for entry in payload.json_data.get("entry", []):
-            for change in entry.get("changes", []):
-                if change.get("field") == "comments":
-                    value = change.get("value", {})
-                    
-                    comment = CommentData(
-                        external_id=value.get("id", ""),
-                        author=value.get("from", {}).get("username"),
-                        message=value.get("text"),
-                        post_id=value.get("media", {}).get("id"),
-                        platform_metadata={
-                            "instagram_data": value,
-                            "entry_id": entry.get("id")
-                        }
-                    )
-                    comments.append(comment)
-        
-        return comments
-    
-    async def validate_token(self, access_token: str) -> bool:
+    async def validate_connection(self, access_token: str) -> bool:
         """Validate Instagram access token"""
         try:
             response = await self.client.get(
@@ -83,81 +35,61 @@ class InstagramService(BasePlatformService):
         except Exception:
             return False
     
-    async def revoke_token(self, access_token: str) -> bool:
-        """Revoke Instagram access token"""
-        try:
-            response = await self.client.delete(
-                f"{self.base_url}/me/permissions",
-                params={"access_token": access_token}
-            )
-            return response.status_code == 200
-        except Exception:
-            return False
-    
-    async def post_reply(self, comment_id: str, message: str, access_token: str) -> Dict[str, Any]:
-        """Post reply to Instagram comment"""
-        response = await self.client.post(
-            f"{self.base_url}/{comment_id}/replies",
-            data={
-                "message": message,
-                "access_token": access_token
-            }
-        )
-        response.raise_for_status()
-        return response.json()
-    
-    async def complete_connection(self, team_id: UUID, auth_code: str, state: str) -> Dict[str, Any]:
-        """Complete OAuth connection flow"""
-        from services.platforms.connection_manager import connection_manager
-        
-        # Exchange code for tokens (implement OAuth flow)
-        token_data = await self._exchange_code_for_tokens(auth_code)
-        
-        # Validate token
-        is_valid = await self.validate_token(token_data["access_token"])
+    async def connect_team(self, team_id: UUID, connection_data: PlatformConnectionData) -> Dict[str, Any]:
+        """Connect team to Instagram"""
+        is_valid = await self.validate_connection(connection_data.access_token)
         if not is_valid:
-            raise ValueError("Invalid access token received")
+            raise ValueError("Invalid Instagram access token")
         
-        connection_data = {
+        return {
+            "platform": self.platform_name,
             "status": "connected",
-            "access_token": token_data["access_token"],
-            "refresh_token": token_data.get("refresh_token"),
-            "token_expires": token_data.get("expires_at"),
-            "metadata": {"oauth_state": state}
+            "access_token": connection_data.access_token,
+            "refresh_token": connection_data.refresh_token,
+            "token_expires": connection_data.token_expires,
+            "metadata": connection_data.metadata
         }
-        
-        return await connection_manager.store_connection(team_id, self.platform_name, connection_data)
-
-    async def _exchange_code_for_tokens(self, auth_code: str) -> Dict[str, Any]:
-        """Exchange authorization code for access tokens"""
-        # Implement Instagram OAuth token exchange
-        response = await self.client.post(
-            "https://api.instagram.com/oauth/access_token",
-            data={
-                "client_id": self.config.instagram_app_id,
-                "client_secret": self.config.instagram_app_secret,
-                "grant_type": "authorization_code",
-                "redirect_uri": "your_redirect_uri",  # Should come from config
-                "code": auth_code
-            }
-        )
-        response.raise_for_status()
-        return response.json()
     
-    async def _verify_signature(self, body: bytes, headers: Dict[str, str]) -> bool:
+    async def disconnect_team(self, team_id: UUID, connection_id: UUID) -> bool:
+        """Disconnect team from Instagram"""
+        return True
+    
+    async def process_webhook(self, payload: Dict[str, Any], headers: Dict[str, str]) -> List[PlatformWebhookData]:
+        """Process Instagram webhook and extract comments"""
+        comments = []
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                if change.get("field") == "comments":
+                    value = change.get("value", {})
+                    comment = PlatformWebhookData(
+                        external_id=value.get("id", ""),
+                        author=value.get("from", {}).get("username"),
+                        message=value.get("text", ""),
+                        post_id=value.get("media", {}).get("id"),
+                        platform_metadata={"instagram_data": value}
+                    )
+                    comments.append(comment)
+        return comments
+    
+    async def verify_webhook_signature(self, body: bytes, headers: Dict[str, str]) -> bool:
         """Verify Instagram webhook signature"""
         signature = headers.get("x-hub-signature-256", "")
         if not signature:
             return False
         
-        app_secret = self.config.instagram_app_secret
-        if not app_secret:
-            return False
-        
         expected_signature = "sha256=" + hmac.new(
-            app_secret.encode(),
+            self.config.instagram_app_secret.encode(),
             body,
             hashlib.sha256
         ).hexdigest()
         
         return hmac.compare_digest(signature, expected_signature)
+    
+    async def post_reply(self, comment_id: str, message: str, access_token: str) -> Dict[str, Any]:
+        """Post reply to Instagram comment"""
+        response = await self.client.post(
+            f"{self.base_url}/{comment_id}/replies",
+            data={"message": message, "access_token": access_token}
+        )
+        response.raise_for_status()
+        return response.json()
