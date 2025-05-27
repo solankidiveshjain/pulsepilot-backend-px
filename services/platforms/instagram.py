@@ -4,11 +4,13 @@ Instagram platform service implementation
 
 import hmac
 import hashlib
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from uuid import UUID
 from utils.http_client import get_async_client
 from utils.config import get_config
 from datetime import datetime, timedelta
+from schemas.social_media import PostData, CommentData, MetricsData, InsightsData
+import httpx
 
 from .base import BasePlatformService, PlatformConnectionData, PlatformWebhookData, OnboardingConfig
 
@@ -186,3 +188,100 @@ class InstagramService(BasePlatformService):
             token_expires=expires_at,
             metadata=data
         )
+
+    async def fetch_initial(self, access_token: str) -> Tuple[List[PostData], List[CommentData]]:
+        """Fetch recent media entries and nested comments via Instagram Graph API v16.0"""
+        fields = (
+            'media.limit(25){id,caption,media_type,permalink,timestamp,'
+            'comments.limit(25){id,text,timestamp,username}}'
+        )
+        try:
+            resp = await self.client.get(
+                f"{self.base_url}/me/media",
+                params={"fields": fields, "access_token": access_token}
+            )
+            resp.raise_for_status()
+            items = resp.json().get('data', [])
+        except httpx.HTTPError:
+            return [], []
+        posts: List[PostData] = []
+        comments: List[CommentData] = []
+        for item in items:
+            ts = item.get('timestamp') or item.get('created_time')
+            created_at = datetime.fromisoformat(ts.replace('Z', '+00:00')) if ts else None
+            posts.append(PostData(
+                external_id=item.get('id', ''),
+                platform=self.platform_name,
+                type=item.get('media_type'),
+                metadata=item,
+                created_at=created_at
+            ))
+            for c in item.get('comments', {}).get('data', []):
+                cts = c.get('timestamp') or c.get('created_time')
+                c_at = datetime.fromisoformat(cts.replace('Z', '+00:00')) if cts else None
+                comments.append(CommentData(
+                    external_id=c.get('id', ''),
+                    platform=self.platform_name,
+                    post_external_id=item.get('id', ''),
+                    author=c.get('username') or c.get('from', {}).get('username'),
+                    message=c.get('text'),
+                    metadata=c,
+                    created_at=c_at
+                ))
+        return posts, comments
+
+    async def fetch_metrics(self, access_token: str, since: datetime, until: datetime) -> MetricsData:
+        """Fetch Instagram profile-level metrics between two timestamps"""
+        metric_names = ['impressions', 'reach', 'profile_views']
+        try:
+            resp = await self.client.get(
+                f"{self.base_url}/me/insights",
+                params={
+                    'metric': ','.join(metric_names),
+                    'period': 'day',
+                    'since': int(since.timestamp()),
+                    'until': int(until.timestamp()),
+                    'access_token': access_token
+                }
+            )
+            resp.raise_for_status()
+            data = resp.json().get('data', [])
+        except httpx.HTTPError:
+            return MetricsData(platform=self.platform_name, since=since, until=until, metrics={})
+        metrics: Dict[str, int] = {}
+        for entry in data:
+            name = entry.get('name')
+            total = 0
+            for v in entry.get('values', []):
+                val = v.get('value', 0)
+                total += sum(val.values()) if isinstance(val, dict) else val
+            if name:
+                metrics[name] = total
+        return MetricsData(platform=self.platform_name, since=since, until=until, metrics=metrics)
+
+    async def fetch_insights(self, access_token: str, post_external_id: str) -> InsightsData:
+        """Fetch media-level detailed insights via Graph API"""
+        metric_names = ['impressions', 'reach', 'engagement']
+        try:
+            resp = await self.client.get(
+                f"{self.base_url}/{post_external_id}/insights",
+                params={
+                    'metric': ','.join(metric_names),
+                    'period': 'lifetime',
+                    'access_token': access_token
+                }
+            )
+            resp.raise_for_status()
+            data = resp.json().get('data', [])
+        except httpx.HTTPError:
+            return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics={})
+        metrics: Dict[str, int] = {}
+        for entry in data:
+            name = entry.get('name')
+            total = 0
+            for v in entry.get('values', []):
+                val = v.get('value', 0)
+                total += sum(val.values()) if isinstance(val, dict) else val
+            if name:
+                metrics[name] = total
+        return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics=metrics)

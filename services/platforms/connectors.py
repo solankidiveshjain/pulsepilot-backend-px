@@ -60,109 +60,22 @@ class FacebookConnector(SocialMediaConnector):
 class InstagramConnector(SocialMediaConnector):
     """Fetch initial media and comments from Instagram Graph API"""
     async def fetch_initial(self) -> Tuple[List[PostData], List[CommentData]]:
-        """Fetch recent media entries and nested comments via Graph API."""
-        token = self.connection.access_token
-        graph = GraphAPI(access_token=token, version='16.0')
-        # Define nested fields: media and comments
-        fields = (
-            'media.limit(25){'
-            'id,caption,media_type,permalink,timestamp,'
-            'comments.limit(25){id,text,timestamp,username}'
-            '}'
-        )
-        try:
-            resp = await asyncio.to_thread(graph.get_connections, 'me', 'media', fields=fields)
-        except GraphAPIError:
-            return [], []
-        media_data = resp.get('data', [])
-        posts: List[PostData] = []
-        comments: List[CommentData] = []
-        for item in media_data:
-            ts = item.get('timestamp')
-            created_at = datetime.fromisoformat(ts.replace('Z', '+00:00')) if ts else None
-            posts.append(PostData(
-                external_id=item.get('id', ''),
-                platform='instagram',
-                type=item.get('media_type'),
-                metadata=item,
-                created_at=created_at
-            ))
-            # Nested comments
-            for c in item.get('comments', {}).get('data', []):
-                cts = c.get('timestamp')
-                c_at = datetime.fromisoformat(cts.replace('Z', '+00:00')) if cts else None
-                comments.append(CommentData(
-                    external_id=c.get('id', ''),
-                    platform='instagram',
-                    post_external_id=item.get('id', ''),
-                    author=c.get('username'),
-                    message=c.get('text'),
-                    metadata=c,
-                    created_at=c_at
-                ))
-        return posts, comments
+        """Delegate to InstagramService for initial media/comment sync."""
+        from services.platforms.instagram import InstagramService
+        svc = InstagramService()
+        return await svc.fetch_initial(self.connection.access_token)
 
     async def fetch_metrics(self, since: datetime, until: datetime) -> MetricsData:
-        """Fetch Instagram profile-level metrics between two timestamps."""
-        token = self.connection.access_token
-        graph = GraphAPI(access_token=token, version='16.0')
-        metric_names = ['impressions', 'reach', 'profile_views']
-        try:
-            resp = await asyncio.to_thread(
-                graph.get_connections,
-                'me',
-                'insights',
-                metric=','.join(metric_names),
-                period='day',
-                since=int(since.timestamp()),
-                until=int(until.timestamp())
-            )
-        except GraphAPIError:
-            return MetricsData(platform='instagram', since=since, until=until, metrics={})
-        data = resp.get('data', [])
-        metrics = {}
-        for entry in data:
-            name = entry.get('name')
-            total = 0
-            for v in entry.get('values', []):
-                val = v.get('value', 0)
-                if isinstance(val, dict):
-                    total += sum(val.values())
-                else:
-                    total += val
-            if name:
-                metrics[name] = total
-        return MetricsData(platform='instagram', since=since, until=until, metrics=metrics)
+        """Delegate to InstagramService for profile-level metrics."""
+        from services.platforms.instagram import InstagramService
+        svc = InstagramService()
+        return await svc.fetch_metrics(self.connection.access_token, since, until)
 
     async def fetch_insights(self, post_external_id: str) -> InsightsData:
-        """Fetch media-level detailed insights (impressions, reach, engagement)."""
-        token = self.connection.access_token
-        graph = GraphAPI(access_token=token, version='16.0')
-        metric_names = ['impressions', 'reach', 'engagement']
-        try:
-            resp = await asyncio.to_thread(
-                graph.get_connections,
-                post_external_id,
-                'insights',
-                metric=','.join(metric_names),
-                period='lifetime'
-            )
-        except GraphAPIError:
-            return InsightsData(platform='instagram', post_external_id=post_external_id, metrics={})
-        data = resp.get('data', [])
-        metrics = {}
-        for entry in data:
-            name = entry.get('name')
-            total = 0
-            for v in entry.get('values', []):
-                val = v.get('value', 0)
-                if isinstance(val, dict):
-                    total += sum(val.values())
-                else:
-                    total += val
-            if name:
-                metrics[name] = total
-        return InsightsData(platform='instagram', post_external_id=post_external_id, metrics=metrics)
+        """Delegate to InstagramService for media-level insights."""
+        from services.platforms.instagram import InstagramService
+        svc = InstagramService()
+        return await svc.fetch_insights(self.connection.access_token, post_external_id)
 
 class TwitterConnector(SocialMediaConnector):
     """Fetch initial tweets and replies from Twitter API v2"""
