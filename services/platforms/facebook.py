@@ -4,10 +4,9 @@ from datetime import datetime, timedelta
 from utils.http_client import get_async_client
 from utils.social_settings import get_social_media_settings
 from .base import BasePlatformService, PlatformConnectionData, OnboardingConfig, PlatformWebhookData
-from facebook import GraphAPI, GraphAPIError
+import httpx
 import hmac
 import hashlib
-import asyncio
 
 
 class FacebookService(BasePlatformService):
@@ -15,8 +14,10 @@ class FacebookService(BasePlatformService):
 
     def __init__(self):
         self.client = get_async_client()
-        settings = get_social_media_settings().facebook
+        settings = get_social_media_settings().get('facebook', {})
         self.api_base = settings.get('api_base_url')
+        self.api_version = 'v16.0'
+        self.api_endpoint = f"{self.api_base}/{self.api_version}"
         # Placeholder for OAuth onboarding config
         self._oauth_config: Optional[OnboardingConfig] = None
 
@@ -100,31 +101,37 @@ class FacebookService(BasePlatformService):
 
     async def validate_connection(self, access_token: str) -> bool:
         """Validate Facebook access token by fetching the profile."""
-        graph = GraphAPI(access_token=access_token, version='12.0')
         try:
-            # Use a thread for sync SDK call
-            await asyncio.to_thread(graph.get_object, 'me', fields='id')
+            resp = await self.client.get(
+                f"{self.api_endpoint}/me",
+                params={"fields": "id", "access_token": access_token}
+            )
+            resp.raise_for_status()
             return True
-        except GraphAPIError:
+        except httpx.HTTPError:
             return False
 
     async def connect_team(self, team_id: UUID, connection_data: PlatformConnectionData) -> Dict[str, Any]:
         """Finalize connection: validate token and fetch profile data."""
         is_valid = await self.validate_connection(connection_data.access_token)
         if not is_valid:
-            raise ValueError('Invalid Facebook access token')
-        graph = GraphAPI(access_token=connection_data.access_token, version='12.0')
+            raise ValueError("Invalid Facebook access token")
         try:
-            profile = await asyncio.to_thread(graph.get_object, 'me', fields='id,name')
-        except GraphAPIError:
+            resp = await self.client.get(
+                f"{self.api_endpoint}/me",
+                params={"fields": "id,name", "access_token": connection_data.access_token}
+            )
+            resp.raise_for_status()
+            profile = resp.json()
+        except httpx.HTTPError:
             profile = {}
         return {
-            'platform': self.platform_name,
-            'status': 'connected',
-            'access_token': connection_data.access_token,
-            'refresh_token': connection_data.refresh_token,
-            'token_expires': connection_data.token_expires,
-            'metadata': profile
+            "platform": self.platform_name,
+            "status": "connected",
+            "access_token": connection_data.access_token,
+            "refresh_token": connection_data.refresh_token,
+            "token_expires": connection_data.token_expires,
+            "metadata": profile
         }
 
     async def disconnect_team(self, team_id: UUID, connection_id: UUID) -> bool:
@@ -159,9 +166,16 @@ class FacebookService(BasePlatformService):
 
     async def post_reply(self, comment_id: str, message: str, access_token: str) -> Dict[str, Any]:
         """Post a reply to a Facebook comment."""
-        graph = GraphAPI(access_token=access_token, version='16.0')
-        result = await asyncio.to_thread(graph.put_object, comment_id, 'comments', message=message)
-        return result
+        try:
+            resp = await self.client.post(
+                f"{self.api_base}/{comment_id}/comments",
+                params={"access_token": access_token},
+                data={"message": message}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"Failed to post reply: {str(e)}")
 
     async def fetch_initial(self) -> Any:
         raise NotImplementedError('FacebookService.fetch_initial not implemented')

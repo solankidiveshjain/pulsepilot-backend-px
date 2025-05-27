@@ -56,3 +56,5 @@ tweepy>=4.19.1
 python-linkedin-v2>=2.1.0
 google-api-python-client>=2.96.0
 TikTokApi>=8.1.0
+# YAML parsing
+pyyaml>=6.0
