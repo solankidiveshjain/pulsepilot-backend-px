@@ -13,6 +13,7 @@ from datetime import datetime
 from utils.config import get_config
 from utils.logging import get_logger
 from utils.monitoring import track_webhook_metrics
+from utils.social_settings import get_social_media_settings
 
 logger = get_logger(__name__)
 
@@ -25,6 +26,7 @@ class WebhookSecurityManager:
         self.platform_verifiers = {
             "instagram": self._verify_instagram_signature,
             "twitter": self._verify_twitter_signature,
+            "facebook": self._verify_facebook_signature,
             "youtube": self._verify_youtube_signature,
             "linkedin": self._verify_linkedin_signature,
         }
@@ -118,11 +120,35 @@ class WebhookSecurityManager:
         
         return hmac.compare_digest(signature, expected_signature)
     
+    async def _verify_facebook_signature(self, body: bytes, headers: Dict[str, str]) -> bool:
+        """Verify Facebook webhook signature"""
+        signature = headers.get("x-hub-signature", "")
+        if not signature:
+            return False
+        settings = get_social_media_settings().get("facebook", {})
+        secret = settings.get("client_secret")
+        if not secret:
+            logger.error("Facebook client secret not configured")
+            return False
+        sig_val = signature.split("=", 1)[1] if "=" in signature else signature
+        expected = hmac.new(secret.encode(), body, hashlib.sha1).hexdigest()
+        return hmac.compare_digest(sig_val, expected)
+    
     async def _verify_youtube_signature(self, body: bytes, headers: Dict[str, str]) -> bool:
-        """Verify YouTube webhook (PubSubHubbub doesn't use signatures)"""
-        # YouTube uses PubSubHubbub which doesn't require signature verification
-        # but we can verify the hub.challenge for subscription verification
-        return True
+        """Verify YouTube webhook signature using HMAC-SHA1 and webhook secret."""
+        signature = headers.get("x-hub-signature", "")
+        if not signature:
+            return False
+        if not self.config.webhook_secret_key:
+            logger.error("Webhook secret key not configured")
+            return False
+        sig_val = signature.split("=", 1)[1] if "=" in signature else signature
+        expected = hmac.new(
+            self.config.webhook_secret_key.encode(),
+            body,
+            hashlib.sha1
+        ).hexdigest()
+        return hmac.compare_digest(sig_val, expected)
     
     async def _verify_linkedin_signature(self, body: bytes, headers: Dict[str, str]) -> bool:
         """Verify LinkedIn webhook signature"""
