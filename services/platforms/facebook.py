@@ -1,9 +1,10 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from uuid import UUID
 from datetime import datetime, timedelta
 from utils.http_client import get_async_client
 from utils.social_settings import get_social_media_settings
 from .base import BasePlatformService, PlatformConnectionData, OnboardingConfig, PlatformWebhookData
+from schemas.social_media import PostData, CommentData, MetricsData, InsightsData
 import httpx
 import hmac
 import hashlib
@@ -177,14 +178,99 @@ class FacebookService(BasePlatformService):
         except httpx.HTTPError as e:
             raise RuntimeError(f"Failed to post reply: {str(e)}")
 
-    async def fetch_initial(self) -> Any:
-        raise NotImplementedError('FacebookService.fetch_initial not implemented')
+    async def fetch_initial(self, access_token: str) -> Tuple[List[PostData], List[CommentData]]:
+        """Fetch recent posts and comments via Graph API v16.0."""
+        try:
+            resp = await self.client.get(
+                f"{self.api_endpoint}/me",
+                params={"fields": 'posts.limit(25){id,created_time,type,message,comments.limit(25){id,created_time,from,message}}',
+                        "access_token": access_token}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError:
+            return [], []
+        posts_data = data.get('posts', {}).get('data', [])
+        posts: List[PostData] = []
+        comments: List[CommentData] = []
+        for item in posts_data:
+            ct = item.get('created_time')
+            created_at = datetime.fromisoformat(ct.replace('Z', '+00:00')) if ct else None
+            posts.append(PostData(
+                external_id=item.get('id', ''),
+                platform=self.platform_name,
+                type=item.get('type'),
+                metadata=item,
+                created_at=created_at
+            ))
+            for c in item.get('comments', {}).get('data', []):
+                ctime = c.get('created_time')
+                c_at = datetime.fromisoformat(ctime.replace('Z', '+00:00')) if ctime else None
+                comments.append(CommentData(
+                    external_id=c.get('id', ''),
+                    platform=self.platform_name,
+                    post_external_id=item.get('id', ''),
+                    author=c.get('from', {}).get('name'),
+                    message=c.get('message'),
+                    metadata=c,
+                    created_at=c_at
+                ))
+        return posts, comments
 
-    async def fetch_metrics(self, since: datetime, until: datetime) -> Any:
-        raise NotImplementedError('FacebookService.fetch_metrics not implemented')
+    async def fetch_metrics(self, access_token: str, since: datetime, until: datetime) -> MetricsData:
+        """Fetch page-level engagement metrics via Graph API v16.0."""
+        metric_names = ['page_impressions', 'page_engaged_users', 'page_consumptions']
+        try:
+            resp = await self.client.get(
+                f"{self.api_endpoint}/me/insights",
+                params={
+                    'metric': ','.join(metric_names),
+                    'since': int(since.timestamp()),
+                    'until': int(until.timestamp()),
+                    'access_token': access_token
+                }
+            )
+            resp.raise_for_status()
+            data = resp.json().get('data', [])
+        except httpx.HTTPError:
+            return MetricsData(platform=self.platform_name, since=since, until=until, metrics={})
+        metrics: Dict[str, int] = {}
+        for entry in data:
+            name = entry.get('name')
+            total = 0
+            for v in entry.get('values', []):
+                val = v.get('value', 0)
+                total += sum(val.values()) if isinstance(val, dict) else val
+            if name:
+                metrics[name] = total
+        return MetricsData(platform=self.platform_name, since=since, until=until, metrics=metrics)
 
-    async def fetch_insights(self, post_external_id: str) -> Any:
-        raise NotImplementedError('FacebookService.fetch_insights not implemented')
+    async def fetch_insights(self, access_token: str, post_external_id: str) -> InsightsData:
+        """Fetch post-level insights via Graph API v16.0."""
+        metric_names = ['post_impressions', 'post_engaged_users', 'post_reactions_by_type_total']
+        try:
+            resp = await self.client.get(
+                f"{self.api_endpoint}/{post_external_id}/insights",
+                params={
+                    'metric': ','.join(metric_names),
+                    'period': 'lifetime',
+                    'access_token': access_token
+                }
+            )
+            resp.raise_for_status()
+            data = resp.json().get('data', [])
+        except httpx.HTTPError:
+            return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics={})
+        metrics: Dict[str, int] = {}
+        for entry in data:
+            name = entry.get('name')
+            total = 0
+            for v in entry.get('values', []):
+                val = v.get('value', 0)
+                total += sum(val.values()) if isinstance(val, dict) else val
+            if name:
+                metrics[name] = total
+        return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics=metrics)
 
     async def create_post(self, payload: Any) -> Any:
         raise NotImplementedError('FacebookService.create_post not implemented')

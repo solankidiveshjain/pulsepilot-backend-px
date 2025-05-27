@@ -9,6 +9,9 @@ from schemas.social_media import PostData, CommentData, MetricsData, InsightsDat
 from facebook import GraphAPI, GraphAPIError
 from datetime import datetime
 import asyncio
+from utils.http_client import get_async_client
+from utils.social_settings import get_social_media_settings
+import httpx
 
 
 class SocialMediaConnector(ABC):
@@ -57,113 +60,22 @@ class SocialMediaConnector(ABC):
 class FacebookConnector(SocialMediaConnector):
     """Fetch initial posts/comments from Facebook"""
     async def fetch_initial(self) -> Tuple[List[PostData], List[CommentData]]:
-        """Fetch recent posts and comments with a single nested Graph API call."""
-        token = self.connection.access_token
-        graph = GraphAPI(access_token=token, version='16.0')
-
-        # Define nested fields for posts and comments
-        fields = (
-            'posts.limit(25){'
-            'id,created_time,type,message,comments.limit(25){'
-            'id,created_time,from,message'
-            '}}'
-        )
-        try:
-            # Execute sync call in a thread pool per SDK guidance
-            resp = await asyncio.to_thread(graph.get_object, 'me', fields=fields)
-        except GraphAPIError:
-            # Gracefully handle Graph API errors
-            return [], []
-
-        posts_data = resp.get('posts', {}).get('data', [])
-        posts: List[PostData] = []
-        comments: List[CommentData] = []
-
-        for item in posts_data:
-            ct = item.get('created_time')
-            created_at = datetime.fromisoformat(ct.replace('Z', '+00:00')) if ct else None
-            posts.append(PostData(
-                external_id=item.get('id', ''),
-                platform='facebook',
-                type=item.get('type'),
-                metadata=item,
-                created_at=created_at
-            ))
-            # Parse nested comments
-            for c in item.get('comments', {}).get('data', []):
-                ctime = c.get('created_time')
-                c_at = datetime.fromisoformat(ctime.replace('Z', '+00:00')) if ctime else None
-                comments.append(CommentData(
-                    external_id=c.get('id', ''),
-                    platform='facebook',
-                    post_external_id=item.get('id', ''),
-                    author=c.get('from', {}).get('name'),
-                    message=c.get('message'),
-                    metadata=c,
-                    created_at=c_at
-                ))
-        return posts, comments
+        """Delegate to FacebookService for initial post/comment sync."""
+        from services.platforms.facebook import FacebookService
+        svc = FacebookService()
+        return await svc.fetch_initial(self.connection.access_token)
 
     async def fetch_metrics(self, since: datetime, until: datetime) -> MetricsData:
-        """Fetch page-level engagement metrics between two timestamps."""
-        token = self.connection.access_token
-        graph = GraphAPI(access_token=token, version='16.0')
-        metric_names = ['page_impressions', 'page_engaged_users', 'page_consumptions']
-        try:
-            resp = await asyncio.to_thread(
-                graph.get_connections,
-                'me',
-                'insights',
-                metric=','.join(metric_names),
-                since=int(since.timestamp()),
-                until=int(until.timestamp())
-            )
-        except GraphAPIError:
-            return MetricsData(platform='facebook', since=since, until=until, metrics={})
-        data = resp.get('data', [])
-        metrics = {}
-        for entry in data:
-            name = entry.get('name')
-            total = 0
-            for v in entry.get('values', []):
-                val = v.get('value', 0)
-                if isinstance(val, dict):
-                    total += sum(val.values())
-                else:
-                    total += val
-            if name:
-                metrics[name] = total
-        return MetricsData(platform='facebook', since=since, until=until, metrics=metrics)
+        """Delegate to FacebookService for page-level metrics."""
+        from services.platforms.facebook import FacebookService
+        svc = FacebookService()
+        return await svc.fetch_metrics(self.connection.access_token, since, until)
 
     async def fetch_insights(self, post_external_id: str) -> InsightsData:
-        """Fetch per-post detailed insights (impressions, engagements, reactions)."""
-        token = self.connection.access_token
-        graph = GraphAPI(access_token=token, version='16.0')
-        metric_names = ['post_impressions', 'post_engaged_users', 'post_reactions_by_type_total']
-        try:
-            resp = await asyncio.to_thread(
-                graph.get_connections,
-                post_external_id,
-                'insights',
-                metric=','.join(metric_names),
-                period='lifetime'
-            )
-        except GraphAPIError:
-            return InsightsData(platform='facebook', post_external_id=post_external_id, metrics={})
-        data = resp.get('data', [])
-        metrics = {}
-        for entry in data:
-            name = entry.get('name')
-            total = 0
-            for v in entry.get('values', []):
-                val = v.get('value', 0)
-                if isinstance(val, dict):
-                    total += sum(val.values())
-                else:
-                    total += val
-            if name:
-                metrics[name] = total
-        return InsightsData(platform='facebook', post_external_id=post_external_id, metrics=metrics)
+        """Delegate to FacebookService for post-level insights."""
+        from services.platforms.facebook import FacebookService
+        svc = FacebookService()
+        return await svc.fetch_insights(self.connection.access_token, post_external_id)
 
     async def create_post(self, payload: PostCreate) -> PostData:
         raise NotImplementedError("FacebookConnector.create_post not implemented")
