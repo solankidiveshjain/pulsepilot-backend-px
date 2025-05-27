@@ -80,108 +80,22 @@ class InstagramConnector(SocialMediaConnector):
 class TwitterConnector(SocialMediaConnector):
     """Fetch initial tweets and replies from Twitter API v2"""
     async def fetch_initial(self) -> Tuple[List[PostData], List[CommentData]]:
-        """Use tweepy AsyncClient with Paginator to fetch tweets and replies."""
-        from tweepy.asynchronous import AsyncClient
-        from tweepy import Paginator
-        from tweepy.errors import TweepyException
-        # Initialize async client
-        token = self.connection.access_token
-        client = AsyncClient(bearer_token=token)
-        try:
-            user_resp = await client.get_me()
-            user_id = user_resp.data.id
-        except TweepyException:
-            return [], []
-
-        posts: List[PostData] = []
-        comments: List[CommentData] = []
-        try:
-            # Fetch user tweets
-            async for resp in Paginator(
-                client.get_users_tweets,
-                id=user_id,
-                max_results=25,
-                tweet_fields=['created_at','conversation_id'],
-            ):
-                for t in resp.data or []:
-                    posts.append(PostData(
-                        external_id=str(t.id),
-                        platform='twitter',
-                        type='text',
-                        metadata=t.data,
-                        created_at=t.created_at
-                    ))
-                    # Fetch replies (tweets in same conversation)
-                    conv_id = str(t.conversation_id or t.id)
-                    async for r_resp in Paginator(
-                        client.search_recent_tweets,
-                        query=f'conversation_id:{conv_id}',
-                        max_results=25,
-                        tweet_fields=['created_at','author_id','text']
-                    ):
-                        for r in r_resp.data or []:
-                            comments.append(CommentData(
-                                external_id=str(r.id),
-                                platform='twitter',
-                                post_external_id=str(t.id),
-                                author=str(r.author_id),
-                                message=r.text,
-                                metadata=r.data,
-                                created_at=r.created_at
-                            ))
-        except TweepyException:
-            # Handle rate limit or other errors
-            pass
-        return posts, comments
+        """Delegate to TwitterService for initial tweets and replies sync."""
+        from services.platforms.twitter import TwitterService
+        svc = TwitterService()
+        return await svc.fetch_initial(self.connection.access_token)
 
     async def fetch_metrics(self, since: datetime, until: datetime) -> MetricsData:
-        """Fetch aggregated tweet metrics between two timestamps."""
-        from tweepy.asynchronous import AsyncClient
-        from tweepy import Paginator
-        from tweepy.errors import TweepyException
-        token = self.connection.access_token
-        client = AsyncClient(bearer_token=token)
-        try:
-            user_resp = await client.get_me()
-            user_id = user_resp.data.id
-        except TweepyException:
-            return MetricsData(platform='twitter', since=since, until=until, metrics={})
-        metrics = {'retweet_count': 0, 'reply_count': 0, 'like_count': 0, 'quote_count': 0}
-        try:
-            async for resp in Paginator(
-                client.get_users_tweets,
-                id=user_id,
-                start_time=since.isoformat(),
-                end_time=until.isoformat(),
-                tweet_fields=['public_metrics'],
-                max_results=100
-            ):
-                for t in resp.data or []:
-                    pm = t.data.get('public_metrics', {})
-                    for k in metrics:
-                        metrics[k] += pm.get(k, 0)
-        except TweepyException:
-            pass
-        return MetricsData(platform='twitter', since=since, until=until, metrics=metrics)
+        """Delegate to TwitterService for aggregated tweet metrics."""
+        from services.platforms.twitter import TwitterService
+        svc = TwitterService()
+        return await svc.fetch_metrics(self.connection.access_token, since, until)
 
     async def fetch_insights(self, post_external_id: str) -> InsightsData:
-        """Fetch tweet public_metrics for a single tweet."""
-        from tweepy.asynchronous import AsyncClient
-        from tweepy.errors import TweepyException
-        token = self.connection.access_token
-        client = AsyncClient(bearer_token=token)
-        try:
-            resp = await client.get_tweet(id=post_external_id, tweet_fields=['public_metrics'])
-            pm = resp.data.public_metrics
-            metrics = {
-                'retweet_count': pm.get('retweet_count', 0),
-                'reply_count': pm.get('reply_count', 0),
-                'like_count': pm.get('like_count', 0),
-                'quote_count': pm.get('quote_count', 0)
-            }
-        except Exception:
-            return InsightsData(platform='twitter', post_external_id=post_external_id, metrics={})
-        return InsightsData(platform='twitter', post_external_id=post_external_id, metrics=metrics)
+        """Delegate to TwitterService for tweet public metrics."""
+        from services.platforms.twitter import TwitterService
+        svc = TwitterService()
+        return await svc.fetch_insights(self.connection.access_token, post_external_id)
 
 class LinkedInConnector(SocialMediaConnector):
     """Fetch initial shares/updates from LinkedIn"""
