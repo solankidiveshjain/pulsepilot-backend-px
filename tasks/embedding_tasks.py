@@ -4,13 +4,14 @@ Background tasks for embedding generation
 
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from models.database import Comment
 from services.vector_service import VectorService
 from utils.database import get_session
 from utils.logging import get_logger
 from utils.token_tracker import TokenTracker
+from utils.db_utils import upsert
 
 
 logger = get_logger(__name__)
@@ -43,13 +44,16 @@ async def generate_comment_embedding(comment_id: UUID):
             # Generate embedding
             embedding = await vector_service.generate_embedding(comment.message)
             
-            # Update comment with embedding
-            stmt = update(Comment).where(
-                Comment.comment_id == comment_id
-            ).values(embedding=embedding)
-            
-            await db.execute(stmt)
-            await db.commit()
+            # Upsert comment embedding
+            await upsert(
+                session=db,
+                model=Comment,
+                values={
+                    "comment_id": comment_id,
+                    "embedding": embedding
+                },
+                pk_field="comment_id"
+            )
             
             # Track token usage
             await token_tracker.track_usage(

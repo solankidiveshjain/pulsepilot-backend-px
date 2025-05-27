@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  compile-lockfiles:
+    name: Compile lockfiles
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install pip-tools
+        run: pip install pip-tools
+      - name: Compile requirements
+        run: |
+          pip-compile requirements.in --output-file requirements.txt
+          pip-compile requirements-dev.in --output-file requirements-dev.txt
+      - name: Verify lockfiles
+        run: git diff --exit-code requirements.txt requirements-dev.txt
+
+  tests:
+    name: Lint, Type-check & Test
+    needs: compile-lockfiles
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Format check with Black
+        run: black --check .
+      - name: Import sort check with isort
+        run: isort --check-only .
+      - name: Lint with flake8
+        run: flake8 .
+      - name: Type-check with mypy
+        run: mypy .
+      - name: Security scan with bandit
+        run: bandit -r .
+      - name: Security scan with safety
+        run: safety check --full-report || true
+      - name: Run tests
+        run: pytest --cov=.
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: htmlcov 

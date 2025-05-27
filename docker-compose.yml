@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7.0-alpine
+    container_name: pulsepilot-redis
+    ports:
+      - '6379:6379'
+
+  web:
+    build: .
+    container_name: pulsepilot-backend-web
+    env_file:
+      - .env
+    environment:
+      - PORT=8000
+    ports:
+      - '8000:8000'
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    container_name: pulsepilot-backend-worker
+    env_file:
+      - .env
+    environment:
+      - TASK=worker
+      - DRAMATIQ_PROCESSES=1
+      - DRAMATIQ_THREADS=4
+    depends_on:
+      - redis 

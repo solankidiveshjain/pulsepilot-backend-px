@@ -4,7 +4,7 @@ Reply submission endpoints
 
 from uuid import UUID
 from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -14,7 +14,6 @@ from models.database import Comment, Reply, User, Team
 from utils.database import get_db
 from utils.auth import get_current_team, get_current_user
 from services.social_platforms import get_platform_service
-from tasks.reply_tasks import submit_reply_to_platform
 from utils.task_queue import task_queue
 
 
@@ -39,6 +38,7 @@ class ReplyResponse(BaseModel):
     message: str
     status: str
     submitted_at: datetime = None
+    job_id: str
 
 
 class BulkReplyValidatedRequest(BaseModel):
@@ -57,7 +57,6 @@ async def submit_reply(
     team_id: UUID,
     comment_id: UUID,
     request: ReplyRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_team: Team = Depends(get_current_team),
     current_user: User = Depends(get_current_user)
@@ -112,9 +111,8 @@ async def submit_reply(
         }
     )
     
-    # Submit reply to platform in background
-    background_tasks.add_task(
-        submit_reply_to_platform,
+    # Enqueue reply submission to background worker
+    job_id = await task_queue.enqueue_reply_submission(
         reply.reply_id,
         comment.platform,
         team_id
@@ -123,7 +121,8 @@ async def submit_reply(
     return ReplyResponse(
         reply_id=reply.reply_id,
         message=reply.message,
-        status="submitted"
+        status="submitted",
+        job_id=job_id
     )
 
 
@@ -131,7 +130,6 @@ async def submit_reply(
 async def submit_bulk_replies(
     team_id: UUID,
     request: BulkReplyValidatedRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_team: Team = Depends(get_current_team),
     current_user: User = Depends(get_current_user)

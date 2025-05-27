@@ -6,7 +6,7 @@ import hmac
 import hashlib
 import json
 from typing import Dict, Any, Optional
-from fastapi import Request, HTTPException, status
+from fastapi import Request, HTTPException, status, Depends, Body
 import base64
 from datetime import datetime
 
@@ -285,3 +285,31 @@ class WebhookSecurityManager:
             logger.info(f"Webhook processed successfully for {platform}", extra=log_data)
         else:
             logger.warning(f"Webhook processing failed for {platform}", extra=log_data)
+
+# FastAPI dependency for webhook verification and payload parsing
+async def verify_and_parse_webhook(
+    platform: str,
+    request: Request,
+    body: bytes = Body(...),
+) -> Dict[str, Any]:
+    """
+    FastAPI dependency that verifies webhook signature, logs attempts, and parses payload.
+    Returns a dict with headers, raw body, and validated payload data.
+    """
+    headers = dict(request.headers)
+    manager = WebhookSecurityManager()
+    # Verify signature
+    is_valid = await manager.verify_webhook(platform, request, body, headers)
+    if not is_valid:
+        await manager.log_webhook_attempt(platform, request, False, "Invalid signature")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
+    # Parse JSON payload
+    try:
+        json_data = json.loads(body)
+        validated = await _validate_webhook_payload(platform, json_data)
+    except Exception as e:
+        await manager.log_webhook_attempt(platform, request, False, f"Invalid payload: {e}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid webhook payload: {e}")
+    # Log successful verification
+    await manager.log_webhook_attempt(platform, request, True)
+    return {"headers": headers, "body": body, "validated_payload": validated.dict()}

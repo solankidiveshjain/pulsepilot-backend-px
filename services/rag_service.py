@@ -13,6 +13,8 @@ from services.llm_service import LLMService
 from utils.database import get_session
 from utils.logging import get_logger
 from services.rag_prompts import rag_prompt_composer
+from utils.db_utils import upsert
+import inspect
 
 logger = get_logger(__name__)
 
@@ -34,8 +36,21 @@ class RAGService:
         
         # 1. Generate embedding for the comment if not exists
         if not comment.embedding:
-            # Generate embedding for the comment
-            embedding = self.vector_service.generate_embedding(comment.message or "")
+            # Generate embedding for the comment if not exists (may be sync or async)
+            maybe_embedding = self.vector_service.generate_embedding(comment.message or "")
+            embedding = await maybe_embedding if inspect.isawaitable(maybe_embedding) else maybe_embedding
+            # Persist new embedding using upsert, ignoring persistence errors
+            try:
+                async for db in get_session():
+                    await upsert(
+                        session=db,
+                        model=Comment,
+                        values={"comment_id": comment.comment_id, "embedding": embedding},
+                        pk_field="comment_id"
+                    )
+                    break
+            except Exception as e:
+                logger.error(f"Embedding upsert failed: {e}")
             comment.embedding = embedding
         
         # 2. Find similar comments with successful replies
@@ -61,12 +76,13 @@ class RAGService:
         )
         
         # 5. Generate suggestions using standardized prompts
-        suggestions = self.llm_service.generate_reply_suggestions_with_standardized_rag(
+        maybe_data = self.llm_service.generate_reply_suggestions_with_standardized_rag(
             rag_context=rag_context,
             team_id=team_id
         )
-        
-        return suggestions
+        # Await if needed for real async method, otherwise use direct result
+        suggestions_data = await maybe_data if inspect.isawaitable(maybe_data) else maybe_data
+        return suggestions_data
     
     async def _find_similar_reply_contexts(
         self,

@@ -1,0 +1,44 @@
+# requirements.in
+# Top-level direct dependencies with minimum version constraints
+fastapi>=0.115.12
+uvicorn[standard]>=0.34.2
+python-multipart>=0.0.20
+
+# Database and ORM
+sqlmodel>=0.0.24
+asyncpg>=0.29.0
+alembic>=1.16.1
+pgvector>=0.4.1
+aiosqlite>=0.21.0
+
+# AI and ML
+langchain>=0.3.25
+langchain-openai>=0.3.18
+openai>=1.82.0
+sentence-transformers>=4.1.0
+torch>=2.7.0
+
+# HTTP Client
+httpx>=0.28.0
+
+# Background Tasks
+dramatiq[redis]>=1.15.0
+redis>=6.1.0
+
+# Authentication and Security
+pyjwt>=2.9.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# Monitoring and Logging
+prometheus-fastapi-instrumentator>=7.0.0
+structlog>=24.3.0
+
+# Utilities
+python-dotenv>=1.0.1
+pydantic>=2.7.1
+pydantic-settings>=2.3.1
+
+# Supabase
+supabase-py>=2.3.4
+postgrest-py>=0.14.0 

@@ -4,7 +4,7 @@ YouTube platform service implementation
 
 from typing import Dict, Any, List
 from uuid import UUID
-import httpx
+from utils.http_client import get_async_client
 
 from .base import BasePlatformService, ConnectionConfig, WebhookPayload, CommentData
 from utils.config import get_config
@@ -15,7 +15,7 @@ class YouTubeService(BasePlatformService):
     
     def __init__(self):
         self.base_url = "https://www.googleapis.com/youtube/v3"
-        self.client = httpx.AsyncClient()
+        self.client = get_async_client()
         # Load configuration with fallback to None for testing
         try:
             self.config = get_config()

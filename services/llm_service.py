@@ -6,9 +6,9 @@ import os
 from typing import List, Dict, Any, Optional, Tuple
 from uuid import UUID
 try:
-    from langchain.chat_models.openai import ChatOpenAI
+    from langchain_openai import ChatOpenAI
 except ImportError:
-    # Fallback stub for ChatOpenAI when langchain-community is not installed
+    # Fallback dummy ChatOpenAI if langchain_openai is unavailable
     class ChatOpenAI:
         def __init__(self, *args, **kwargs):
             pass
@@ -218,3 +218,78 @@ class LLMService:
         prompt_cost = (prompt_tokens / 1000) * 0.01
         completion_cost = (completion_tokens / 1000) * 0.03
         return prompt_cost + completion_cost
+
+    async def generate_reply_suggestions_with_standardized_rag(
+        self,
+        rag_context,
+        team_id: UUID,
+        num_suggestions: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Generate reply suggestions using standardized RAG context and prompt composer.
+        """
+        from services.rag_prompts import rag_prompt_composer, RAGContext
+        # Compose prompt variables
+        variables = rag_prompt_composer.create_prompt_variables(rag_context, num_suggestions)
+        # Initialize token counter
+        token_counter = TokenCounterCallback()
+        # Build chain: prompt template -> LLM -> JSON parser
+        chain = rag_prompt_composer.get_prompt_template().__or__(self.llm).__or__(self.output_parser)
+        # Invoke chain asynchronously with token tracking
+        result = await chain.ainvoke(
+            variables,
+            config={"callbacks": [token_counter]}
+        )
+        # Format suggestions
+        suggestions = self._format_suggestions(result.get("suggestions", []))
+        return {
+            "suggestions": suggestions,
+            "reasoning": result.get("reasoning", ""),
+            "tokens_used": token_counter.total_tokens,
+            "cost": self._calculate_cost(token_counter.prompt_tokens, token_counter.completion_tokens),
+            "model": getattr(self.llm, 'model_name', '')
+        }
+
+    async def stream_reply_suggestions(
+        self,
+        comment_text: str,
+        platform: str,
+        author: str,
+        similar_replies: str,
+        persona_guidelines: str = "Be friendly, helpful, and professional. Maintain positive tone.",
+        model_name: str = "gpt-4-turbo-preview"
+    ):
+        """
+        Stream reply suggestions token-by-token from OpenAI ChatCompletion.
+        Yields each chunk of text as it arrives.
+        """
+        import os
+        import openai
+
+        openai.api_key = os.getenv("OPENAI_API_KEY")
+        # Construct messages for ChatCompletion
+        messages = [
+            {"role": "system", "content": "You are an AI assistant helping social media managers craft appropriate replies."},
+            {"role": "user", "content": (
+                f"Generate 3 reply suggestions for this comment:\n" \
+                f"Comment: \"{comment_text}\"\n" \
+                f"Platform: {platform}\n" \
+                f"Author: {author}\n" \
+                f"Similar successful replies: {similar_replies}\n" \
+                f"Brand guidelines: {persona_guidelines}\n" \
+                "Return JSON with suggestions array containing text, score, and tone for each."
+            )}
+        ]
+        # Stream completion
+        response = await openai.ChatCompletion.acreate(
+            model=model_name,
+            messages=messages,
+            stream=True
+        )
+        # Yield content chunks
+        async for chunk in response:
+            for choice in chunk.get('choices', []):
+                delta = choice.get('delta', {})
+                text = delta.get('content')
+                if text:
+                    yield text

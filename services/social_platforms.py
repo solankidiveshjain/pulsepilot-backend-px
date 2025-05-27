@@ -7,7 +7,7 @@ import hmac
 import hashlib
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List
-import httpx
+from utils.http_client import get_async_client
 
 
 class BasePlatformService(ABC):
@@ -34,14 +34,15 @@ class InstagramService(BasePlatformService):
     
     def __init__(self):
         self.base_url = "https://graph.instagram.com"
-        self.client = httpx.AsyncClient()
+        self.client = get_async_client()
     
     async def validate_token(self, access_token: str) -> bool:
         """Validate Instagram access token"""
         try:
             response = await self.client.get(
                 f"{self.base_url}/me",
-                params={"access_token": access_token}
+                params={"access_token": access_token},
+                timeout=5.0
             )
             return response.status_code == 200
         except Exception:
@@ -52,7 +53,8 @@ class InstagramService(BasePlatformService):
         try:
             response = await self.client.delete(
                 f"{self.base_url}/me/permissions",
-                params={"access_token": access_token}
+                params={"access_token": access_token},
+                timeout=5.0
             )
             return response.status_code == 200
         except Exception:
@@ -66,7 +68,8 @@ class InstagramService(BasePlatformService):
                 data={
                     "message": message,
                     "access_token": access_token
-                }
+                },
+                timeout=10.0
             )
             return response.json()
         except Exception as e:
@@ -78,14 +81,15 @@ class TwitterService(BasePlatformService):
     
     def __init__(self):
         self.base_url = "https://api.twitter.com/2"
-        self.client = httpx.AsyncClient()
+        self.client = get_async_client()
     
     async def validate_token(self, access_token: str) -> bool:
         """Validate Twitter access token"""
         try:
             response = await self.client.get(
                 f"{self.base_url}/users/me",
-                headers={"Authorization": f"Bearer {access_token}"}
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=5.0
             )
             return response.status_code == 200
         except Exception:
@@ -96,7 +100,8 @@ class TwitterService(BasePlatformService):
         try:
             response = await self.client.post(
                 "https://api.twitter.com/oauth/revoke",
-                data={"token": access_token}
+                data={"token": access_token},
+                timeout=5.0
             )
             return response.status_code == 200
         except Exception:
@@ -111,7 +116,8 @@ class TwitterService(BasePlatformService):
                 json={
                     "text": message,
                     "reply": {"in_reply_to_tweet_id": comment_id}
-                }
+                },
+                timeout=10.0
             )
             return response.json()
         except Exception as e:
@@ -123,7 +129,7 @@ class YouTubeService(BasePlatformService):
     
     def __init__(self):
         self.base_url = "https://www.googleapis.com/youtube/v3"
-        self.client = httpx.AsyncClient()
+        self.client = get_async_client()
     
     async def validate_token(self, access_token: str) -> bool:
         """Validate YouTube access token"""
@@ -134,7 +140,8 @@ class YouTubeService(BasePlatformService):
                     "part": "id",
                     "mine": "true",
                     "access_token": access_token
-                }
+                },
+                timeout=5.0
             )
             return response.status_code == 200
         except Exception:
@@ -145,7 +152,8 @@ class YouTubeService(BasePlatformService):
         try:
             response = await self.client.post(
                 "https://oauth2.googleapis.com/revoke",
-                data={"token": access_token}
+                data={"token": access_token},
+                timeout=5.0
             )
             return response.status_code == 200
         except Exception:
@@ -162,7 +170,8 @@ class YouTubeService(BasePlatformService):
                         "parentId": comment_id,
                         "textOriginal": message
                     }
-                }
+                },
+                timeout=10.0
             )
             return response.json()
         except Exception as e:
@@ -174,14 +183,15 @@ class LinkedInService(BasePlatformService):
     
     def __init__(self):
         self.base_url = "https://api.linkedin.com/v2"
-        self.client = httpx.AsyncClient()
+        self.client = get_async_client()
     
     async def validate_token(self, access_token: str) -> bool:
         """Validate LinkedIn access token"""
         try:
             response = await self.client.get(
                 f"{self.base_url}/people/~",
-                headers={"Authorization": f"Bearer {access_token}"}
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=5.0
             )
             return response.status_code == 200
         except Exception:
@@ -202,7 +212,8 @@ class LinkedInService(BasePlatformService):
                     "message": {
                         "text": message
                     }
-                }
+                },
+                timeout=10.0
             )
             return response.json()
         except Exception as e:

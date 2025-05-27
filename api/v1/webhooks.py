@@ -3,7 +3,7 @@ RESTful webhook endpoints with enhanced security
 """
 
 from fastapi import APIRouter, Request, HTTPException, status, Depends
-from utils.webhook_security import webhook_security
+from utils.webhook_security import verify_and_parse_webhook
 from utils.task_queue import task_queue
 from schemas.responses import WebhookResponse
 from utils.exceptions import handle_platform_error
@@ -17,61 +17,18 @@ logger = get_logger(__name__)
 @router.post("/{platform}", response_model=WebhookResponse)
 async def handle_platform_webhook(
     platform: str,
-    request: Request
+    payload_data: Dict[str, Any] = Depends(verify_and_parse_webhook)
 ) -> WebhookResponse:
-    """Handle webhook from social media platform with strict validation"""
-    
-    try:
-        # Get raw body and headers
-        body = await request.body()
-        headers = dict(request.headers)
-        
-        # Verify webhook signature
-        is_valid = await webhook_security.verify_webhook(platform, request, body, headers)
-        
-        if not is_valid:
-            await webhook_security.log_webhook_attempt(platform, request, False, "Invalid signature")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid webhook signature"
-            )
-        
-        # Parse and validate JSON payload with platform-specific models
-        try:
-            json_data = await request.json()
-            validated_payload = await _validate_webhook_payload(platform, json_data)
-        except Exception as e:
-            await webhook_security.log_webhook_attempt(platform, request, False, f"Invalid payload: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Invalid webhook payload: {str(e)}"
-            )
-        
-        # Prepare validated payload data for background processing
-        payload_data = {
-            "headers": headers,
-            "body": body,
-            "validated_payload": validated_payload.dict(),
-            "team_id": None  # This should be determined from webhook content
-        }
-        
-        # Enqueue webhook processing
-        job_id = await task_queue.enqueue_webhook_processing(platform, payload_data)
-        
-        await webhook_security.log_webhook_attempt(platform, request, True)
-        
-        return WebhookResponse(
-            status="accepted",
-            message=f"Webhook from {platform} validated and queued",
-            comments_processed=0,
-            job_id=job_id
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        await webhook_security.log_webhook_attempt(platform, request, False, str(e))
-        raise handle_platform_error(e, platform)
+    """Handle webhook from social media platform with strict validation and dispatch"""
+    # Enqueue webhook processing
+    payload_data['team_id'] = None  # Determine from payload if needed
+    job_id = await task_queue.enqueue_webhook_processing(platform, payload_data)
+    return WebhookResponse(
+        status="accepted",
+        message=f"Webhook from {platform} validated and queued",
+        comments_processed=0,
+        job_id=job_id
+    )
 
 
 @router.get("/{platform}/challenge")

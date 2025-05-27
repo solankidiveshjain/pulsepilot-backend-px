@@ -1,0 +1,45 @@
+# .cursorrules
+# Guidelines for PulsePilot Backend to enhance performance, optimize compute, improve monitoring & logging, ensure maintainability, and adopt modern practices
+
+rules:
+  performance:
+    description: "Enhance application performance and resource efficiency"
+    guidelines:
+      - "Adopt async/await or non-blocking I/O for network and file operations"
+      - "Use connection pooling for databases and external services"
+      - "Profile code regularly and optimize hot paths"
+      - "Batch requests and leverage bulk operations"
+      - "Implement caching strategies (in-memory, Redis) with appropriate TTL"
+
+  compute_optimization:
+    description: "Optimize compute usage and resource consumption"
+    guidelines:
+      - "Avoid premature optimization; focus on measurable bottlenecks"
+      - "Use lazy loading and generators for large data processing"
+      - "Offload CPU-intensive tasks to background workers or serverless functions"
+      - "Leverage vectorized operations or native libraries for heavy computations"
+      - "Ensure efficient memory management and garbage collection"
+
+  observability:
+    description: "Improve monitoring, logging, and tracing"
+    guidelines:
+      - "Implement structured (JSON) logging with contextual metadata"
+      - "Use correlation IDs to trace requests across services"
+      - "Integrate OpenTelemetry for distributed tracing"
+      - "Expose metrics (Prometheus) and define SLOs/SLIs"
+      - "Centralize logs (ELK, Loki) and configure alerts for critical events"
+
+  maintainability:
+    description: "Ensure code is clean, testable, and maintainable"
+    guidelines:
+      - "Follow SOLID, DRY, and KISS principles"
+      - "Write unit, integration, and end-to-end tests with clear coverage targets"
+      - "Enforce static type checking (mypy) and linting (flake8, black)"
+      - "Perform code reviews and integrate CI pipelines"
+      - "Document public APIs and key modules with docstrings and shared README"
+
+  modern_practices:
+    description: "Adopt modern and futuristic development practices"
+    guidelines:
+      - "Automate CI/CD workflows with GitHub Actions or similar tools"
+      - "Include security scanning (SAST/DAST) and dependency checks in pipelines" 

@@ -4,7 +4,7 @@ AI-powered reply suggestions endpoints
 
 from uuid import UUID
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -109,3 +109,52 @@ async def get_suggestions(
         job_id=job_id,
         status="processing"
     )
+
+
+@router.get("/{team_id}/comments/{comment_id}/suggestions/stream")
+async def stream_suggestions(
+    team_id: UUID,
+    comment_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_team: Team = Depends(get_current_team)
+) -> StreamingResponse:
+    """
+    Stream AI-powered reply suggestions for a comment in real-time.
+    """
+    # Verify team access
+    if current_team.team_id != team_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to team"
+        )
+    # Fetch comment
+    stmt = select(Comment).where(
+        Comment.comment_id == comment_id,
+        Comment.team_id == team_id
+    )
+    result = await db.execute(stmt)
+    comment = result.scalar_one_or_none()
+    if not comment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comment not found"
+        )
+    # Fetch similar replies as context
+    vector_service = VectorService()
+    similar_comments = await vector_service.find_similar_comments(
+        await vector_service.generate_embedding(comment.message),
+        team_id,
+        limit=5
+    )
+    similar_replies = " ; ".join([c.message for c in similar_comments]) if similar_comments else ""
+    # Stream suggestions
+    llm = LLMService()
+    async def suggestion_generator():
+        async for chunk in llm.stream_reply_suggestions(
+            comment_text=comment.message,
+            platform=comment.platform,
+            author=comment.author,
+            similar_replies=similar_replies
+        ):
+            yield chunk
+    return StreamingResponse(suggestion_generator(), media_type="text/event-stream")

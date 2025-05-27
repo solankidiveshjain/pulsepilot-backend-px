@@ -129,7 +129,7 @@ async def health_check() -> dict:
     """
     from datetime import datetime
     from utils.database import get_session
-    from tasks.async_task_manager import task_manager
+    # from tasks.async_task_manager import task_manager  # removed ARQ manager
     
     # Check dependencies
     dependencies = {}
@@ -144,8 +144,11 @@ async def health_check() -> dict:
         logger.error("Database health check failed", error=str(e))
     
     try:
-        # Test Redis connection
-        await task_manager.get_pool()
+        # Test Redis connection directly
+        from redis.asyncio import Redis
+        import os
+        redis_client = Redis.from_url(os.getenv("REDIS_URL"))
+        await redis_client.ping()
         dependencies["redis"] = "healthy"
     except Exception as e:
         dependencies["redis"] = "unhealthy"

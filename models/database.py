@@ -82,7 +82,7 @@ class Comment(SQLModel, table=True):
     post_id: Optional[UUID] = Field(default=None, foreign_key="posts.post_id")
     archived: bool = Field(default=False)
     flagged: bool = Field(default=False)
-    embedding: Optional[List[float]] = Field(default=None, sa_column=Column(Vector(768)))
+    embedding: Optional[List[float]] = Field(default=None, sa_column=Column(Vector(384)))
     metadata_json: Optional[Dict[str, Any]] = Field(default=None, alias="metadata", sa_column=Column("metadata", JSON))
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

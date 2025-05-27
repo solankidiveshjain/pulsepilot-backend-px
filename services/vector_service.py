@@ -17,6 +17,11 @@ except ImportError:
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from sqlalchemy.sql import func
+try:
+    import openai
+except ImportError:
+    # Fallback dummy openai module for tests
+    openai = None
 
 from models.database import Comment
 from utils.database import get_session
@@ -38,7 +43,8 @@ class VectorService:
         try:
             # Generate embedding
             embedding = self.model.encode(text.strip())
-            return embedding.tolist()
+            # Ensure returns list
+            return embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
         except Exception as e:
             raise Exception(f"Embedding generation failed: {str(e)}")
     
@@ -132,3 +138,43 @@ class VectorService:
                 
             except Exception as e:
                 raise Exception(f"Failed to update embedding: {str(e)}")
+
+    async def generate_embeddings_batch(
+        self,
+        texts: List[str],
+        model_name: str = "text-embedding-ada-002",
+        batch_size: int = 100
+    ) -> List[List[float]]:
+        """
+        Generate embeddings for multiple texts using OpenAI Embedding API in batches.
+
+        Args:
+            texts: List of input texts to embed
+            model_name: OpenAI embedding model name
+            batch_size: Number of texts per API call
+
+        Returns:
+            List of embedding vectors corresponding to input texts
+        """
+        # Configure OpenAI API key
+        openai.api_key = os.getenv("OPENAI_API_KEY")
+        all_embeddings: List[List[float]] = []
+        # Helper to chunk list
+        for i in range(0, len(texts), batch_size):
+            batch = [t for t in texts[i:i+batch_size] if t and t.strip()]
+            if not batch:
+                all_embeddings.extend([[0.0] * self.embedding_dim] * len(texts[i:i+batch_size]))
+                continue
+            try:
+                response = await openai.Embedding.acreate(
+                    model=model_name,
+                    input=batch
+                )
+                # Extract embeddings in order
+                for data in response.get('data', []):
+                    all_embeddings.append(data.get('embedding', [0.0] * self.embedding_dim))
+            except Exception as e:
+                # On failure, fill with zeros
+                for _ in batch:
+                    all_embeddings.append([0.0] * self.embedding_dim)
+        return all_embeddings
