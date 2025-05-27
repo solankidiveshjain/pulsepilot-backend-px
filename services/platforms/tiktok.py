@@ -1,10 +1,11 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from uuid import UUID
 from datetime import datetime, timedelta
 from utils.http_client import get_async_client
 from utils.social_settings import get_social_media_settings
 from .base import BasePlatformService, PlatformConnectionData, OnboardingConfig, PlatformWebhookData
 import asyncio
+from schemas.social_media import PostData, CommentData, MetricsData, InsightsData
 
 
 class TikTokService(BasePlatformService):
@@ -112,14 +113,89 @@ class TikTokService(BasePlatformService):
         # TikTok API does not support comments replies via API
         return {}
 
-    async def fetch_initial(self) -> Any:
-        raise NotImplementedError('TikTokService.fetch_initial not implemented')
+    async def fetch_initial(self, access_token: str, user_id: Optional[str] = None) -> Tuple[List[PostData], List[CommentData]]:
+        """Use TikTokApi to fetch user videos and comments."""
+        from TikTokApi import TikTokApi
+        import asyncio
+        api = TikTokApi.get_instance()
+        uid = user_id
+        if not uid:
+            return [], []
+        posts: List[PostData] = []
+        comments: List[CommentData] = []
+        try:
+            videos = await asyncio.to_thread(api.user_posts, user_id=uid, count=25)
+        except Exception:
+            return [], []
+        for v in videos:
+            vid_id = str(v.get('id'))
+            ts = v.get('createTime')
+            created_at = datetime.fromtimestamp(ts) if ts else None
+            posts.append(PostData(
+                external_id=vid_id,
+                platform=self.platform_name,
+                type='video',
+                metadata=v,
+                created_at=created_at
+            ))
+            try:
+                comms = await asyncio.to_thread(api.video_comments, video_id=vid_id, count=25)
+            except Exception:
+                comms = []
+            for c in comms:
+                cid = str(c.get('id'))
+                c_ts = c.get('createTime')
+                c_at = datetime.fromtimestamp(c_ts) if c_ts else None
+                comments.append(CommentData(
+                    external_id=cid,
+                    platform=self.platform_name,
+                    post_external_id=vid_id,
+                    author=c.get('author', {}).get('uniqueId'),
+                    message=c.get('text'),
+                    metadata=c,
+                    created_at=c_at
+                ))
+        return posts, comments
 
-    async def fetch_metrics(self, since: datetime, until: datetime) -> Any:
-        raise NotImplementedError('TikTokService.fetch_metrics not implemented')
+    async def fetch_metrics(self, access_token: str, since: datetime, until: datetime, user_id: Optional[str] = None) -> MetricsData:
+        """Use TikTokApi to fetch aggregated user video metrics between two timestamps."""
+        from TikTokApi import TikTokApi
+        import asyncio
+        api = TikTokApi.get_instance()
+        uid = user_id
+        if not uid:
+            return MetricsData(platform=self.platform_name, since=since, until=until, metrics={})
+        metrics: Dict[str, int] = {'playCount': 0, 'diggCount': 0, 'commentCount': 0, 'shareCount': 0}
+        try:
+            videos = await asyncio.to_thread(api.user_posts, user_id=uid, count=100)
+            for v in videos:
+                ts = v.get('createTime')
+                created = datetime.fromtimestamp(ts) if ts else None
+                if created and since <= created <= until:
+                    stats = v.get('stats', v)
+                    for k in list(metrics.keys()):
+                        val = stats.get(k)
+                        if isinstance(val, (int, float)):
+                            metrics[k] += val
+        except Exception:
+            return MetricsData(platform=self.platform_name, since=since, until=until, metrics={})
+        return MetricsData(platform=self.platform_name, since=since, until=until, metrics=metrics)
 
-    async def fetch_insights(self, post_external_id: str) -> Any:
-        raise NotImplementedError('TikTokService.fetch_insights not implemented')
+    async def fetch_insights(self, access_token: str, post_external_id: str, user_id: Optional[str] = None) -> InsightsData:
+        """Use TikTokApi to fetch video-level statistics for a single video."""
+        from TikTokApi import TikTokApi
+        import asyncio
+        api = TikTokApi.get_instance()
+        uid = user_id
+        if not uid:
+            return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics={})
+        try:
+            info = await asyncio.to_thread(api.video, id=post_external_id)
+            stats = info.get('stats', info)
+            metrics = {k: stats.get(k) for k in ['playCount', 'diggCount', 'commentCount', 'shareCount'] if stats.get(k) is not None}
+        except Exception:
+            return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics={})
+        return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics=metrics)
 
     async def create_post(self, payload: Any) -> Any:
         raise NotImplementedError('TikTokService.create_post not implemented')

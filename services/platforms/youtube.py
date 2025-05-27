@@ -2,7 +2,7 @@
 YouTube platform service implementation
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from uuid import UUID
 from utils.http_client import get_async_client
 
@@ -12,6 +12,7 @@ from utils.social_settings import get_social_media_settings
 from .base import OnboardingConfig
 from datetime import datetime, timedelta
 import asyncio
+from schemas.social_media import PostData, CommentData, MetricsData, InsightsData
 
 
 class YouTubeService(BasePlatformService):
@@ -189,3 +190,134 @@ class YouTubeService(BasePlatformService):
             token_expires=expires_at,
             metadata=token_data
         )
+
+    async def fetch_initial(self, access_token: str, refresh_token: Optional[str] = None) -> Tuple[List[PostData], List[CommentData]]:
+        """Use google-api-python-client to fetch uploaded videos and comments."""
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        import asyncio
+        token = access_token
+        refresh = refresh_token
+        creds = Credentials(
+            token=token,
+            refresh_token=refresh,
+            token_uri='https://oauth2.googleapis.com/token'
+        )
+        youtube = build('youtube', 'v3', credentials=creds)
+        posts: List[PostData] = []
+        comments: List[CommentData] = []
+        try:
+            channels_resp = await asyncio.to_thread(
+                youtube.channels().list,
+                part='contentDetails',
+                mine=True
+            )
+            channels_data = channels_resp.execute().get('items', [])
+        except Exception:
+            return [], []
+        if not channels_data:
+            return [], []
+        uploads_id = channels_data[0]['contentDetails']['relatedPlaylists']['uploads']
+        try:
+            playlist_resp = await asyncio.to_thread(
+                youtube.playlistItems().list,
+                part='snippet',
+                playlistId=uploads_id,
+                maxResults=25
+            )
+            items = playlist_resp.execute().get('items', [])
+        except Exception:
+            items = []
+        for pi in items:
+            snippet = pi.get('snippet', {})
+            vid_id = snippet.get('resourceId', {}).get('videoId')
+            ts = snippet.get('publishedAt')
+            created_at = datetime.fromisoformat(ts.replace('Z', '+00:00')) if ts else None
+            posts.append(PostData(
+                external_id=vid_id or '',
+                platform=self.platform_name,
+                type='video',
+                metadata=pi,
+                created_at=created_at
+            ))
+            try:
+                ct_resp = await asyncio.to_thread(
+                    youtube.commentThreads().list,
+                    part='snippet',
+                    videoId=vid_id,
+                    maxResults=25
+                )
+                threads = ct_resp.execute().get('items', [])
+            except Exception:
+                threads = []
+            for th in threads:
+                top = th.get('snippet', {}).get('topLevelComment', {}).get('snippet', {})
+                cid = th.get('id')
+                ts_c = top.get('publishedAt')
+                c_at = datetime.fromisoformat(ts_c.replace('Z', '+00:00')) if ts_c else None
+                comments.append(CommentData(
+                    external_id=cid or '',
+                    platform=self.platform_name,
+                    post_external_id=vid_id or '',
+                    author=top.get('authorDisplayName'),
+                    message=top.get('textOriginal'),
+                    metadata=th,
+                    created_at=c_at
+                ))
+        return posts, comments
+
+    async def fetch_metrics(self, access_token: str, since: datetime, until: datetime, refresh_token: Optional[str] = None) -> MetricsData:
+        """Use YouTube Analytics API to fetch channel-level metrics."""
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        import asyncio
+        token = access_token
+        refresh = refresh_token
+        creds = Credentials(
+            token=token,
+            refresh_token=refresh,
+            token_uri='https://oauth2.googleapis.com/token'
+        )
+        analytics = build('youtubeAnalytics', 'v2', credentials=creds)
+        metrics_dict = {'views': 0, 'likes': 0, 'comments': 0}
+        try:
+            resp = await asyncio.to_thread(
+                analytics.reports().query,
+                ids='channel==MINE',
+                startDate=since.strftime('%Y-%m-%d'),
+                endDate=until.strftime('%Y-%m-%d'),
+                metrics=','.join(metrics_dict.keys())
+            )
+            data = resp.execute()
+            for row in data.get('rows', []):
+                for idx, key in enumerate(metrics_dict.keys(), start=1):
+                    metrics_dict[key] += int(row[idx])
+        except Exception:
+            return MetricsData(platform=self.platform_name, since=since, until=until, metrics={})
+        return MetricsData(platform=self.platform_name, since=since, until=until, metrics=metrics_dict)
+
+    async def fetch_insights(self, access_token: str, post_external_id: str, refresh_token: Optional[str] = None) -> InsightsData:
+        """Use YouTube Data API to fetch per-video statistics."""
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        import asyncio
+        token = access_token
+        refresh = refresh_token
+        creds = Credentials(
+            token=token,
+            refresh_token=refresh,
+            token_uri='https://oauth2.googleapis.com/token'
+        )
+        youtube = build('youtube', 'v3', credentials=creds)
+        try:
+            resp = await asyncio.to_thread(
+                youtube.videos().list,
+                part='statistics',
+                id=post_external_id
+            )
+            items = resp.execute().get('items', [])
+            stats = items[0].get('statistics', {}) if items else {}
+            metrics = {k: int(v) for k, v in stats.items()}
+        except Exception:
+            return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics={})
+        return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics=metrics)
