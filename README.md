@@ -136,3 +136,11 @@ Once running, visit:
 - `POST /api/classify` - Classify comment sentiment/emotion
 
 ## 🔄 Background Tasks
+
+We automatically refresh access tokens for each platform according to their official OAuth2 flows:
+- **Instagram**: calls `GET /refresh_access_token?grant_type=ig_refresh_token&access_token={token}` for long-lived Basic Display tokens.
+- **Twitter (PKCE)**: sends `POST https://api.twitter.com/2/oauth2/token` with `grant_type=refresh_token`, `refresh_token`, and `client_id`.
+- **LinkedIn**: sends `POST https://www.linkedin.com/oauth/v2/accessToken` with `grant_type=refresh_token`, `refresh_token`, `client_id`, and `client_secret`.
+- **YouTube (Google OAuth2)**: sends `POST https://oauth2.googleapis.com/token` with `grant_type=refresh_token`, `refresh_token`, `client_id`, and `client_secret`.
+
+Our FastAPI endpoints automatically check the `token_expires` timestamp and invoke `refresh_token` if expired, then persist new tokens to the database before making API calls.

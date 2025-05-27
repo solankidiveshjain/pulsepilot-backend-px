@@ -17,6 +17,8 @@ venv/
 env/
 .env/
 *.env
+.env.local
+.env.test
 
 # Pytest cache
 .pytest_cache/
@@ -64,4 +66,7 @@ __pypackages__/
 
 # Logs directory
 logs/
-pip-selfcheck.json 
+pip-selfcheck.json
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/ 
