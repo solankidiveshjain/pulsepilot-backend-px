@@ -36,26 +36,6 @@ class SocialMediaConnector(ABC):
         """Fetch detailed insights for a given post."""
         pass
 
-    @abstractmethod
-    async def create_post(self, payload: PostCreate) -> PostData:
-        """Create a new post on the platform."""
-        pass
-
-    @abstractmethod
-    async def update_post(self, post_external_id: str, payload: PostUpdate) -> PostData:
-        """Update an existing post on the platform."""
-        pass
-
-    @abstractmethod
-    async def delete_post(self, post_external_id: str) -> bool:
-        """Delete a post from the platform."""
-        pass
-
-    @abstractmethod
-    async def upload_video(self, payload: VideoUpload) -> PostData:
-        """Upload a video to the platform."""
-        pass
-
 # Platform-specific connector stubs
 class FacebookConnector(SocialMediaConnector):
     """Fetch initial posts/comments from Facebook"""
@@ -76,18 +56,6 @@ class FacebookConnector(SocialMediaConnector):
         from services.platforms.facebook import FacebookService
         svc = FacebookService()
         return await svc.fetch_insights(self.connection.access_token, post_external_id)
-
-    async def create_post(self, payload: PostCreate) -> PostData:
-        raise NotImplementedError("FacebookConnector.create_post not implemented")
-
-    async def update_post(self, post_external_id: str, payload: PostUpdate) -> PostData:
-        raise NotImplementedError("FacebookConnector.update_post not implemented")
-
-    async def delete_post(self, post_external_id: str) -> bool:
-        raise NotImplementedError("FacebookConnector.delete_post not implemented")
-
-    async def upload_video(self, payload: VideoUpload) -> PostData:
-        raise NotImplementedError("FacebookConnector.upload_video not implemented")
 
 class InstagramConnector(SocialMediaConnector):
     """Fetch initial media and comments from Instagram Graph API"""
@@ -196,18 +164,6 @@ class InstagramConnector(SocialMediaConnector):
                 metrics[name] = total
         return InsightsData(platform='instagram', post_external_id=post_external_id, metrics=metrics)
 
-    async def create_post(self, payload: PostCreate) -> PostData:
-        raise NotImplementedError("InstagramConnector.create_post not implemented")
-
-    async def update_post(self, post_external_id: str, payload: PostUpdate) -> PostData:
-        raise NotImplementedError("InstagramConnector.update_post not implemented")
-
-    async def delete_post(self, post_external_id: str) -> bool:
-        raise NotImplementedError("InstagramConnector.delete_post not implemented")
-
-    async def upload_video(self, payload: VideoUpload) -> PostData:
-        raise NotImplementedError("InstagramConnector.upload_video not implemented")
-
 class TwitterConnector(SocialMediaConnector):
     """Fetch initial tweets and replies from Twitter API v2"""
     async def fetch_initial(self) -> Tuple[List[PostData], List[CommentData]]:
@@ -313,18 +269,6 @@ class TwitterConnector(SocialMediaConnector):
         except Exception:
             return InsightsData(platform='twitter', post_external_id=post_external_id, metrics={})
         return InsightsData(platform='twitter', post_external_id=post_external_id, metrics=metrics)
-
-    async def create_post(self, payload: PostCreate) -> PostData:
-        raise NotImplementedError("TwitterConnector.create_post not implemented")
-
-    async def update_post(self, post_external_id: str, payload: PostUpdate) -> PostData:
-        raise NotImplementedError("TwitterConnector.update_post not implemented")
-
-    async def delete_post(self, post_external_id: str) -> bool:
-        raise NotImplementedError("TwitterConnector.delete_post not implemented")
-
-    async def upload_video(self, payload: VideoUpload) -> PostData:
-        raise NotImplementedError("TwitterConnector.upload_video not implemented")
 
 class LinkedInConnector(SocialMediaConnector):
     """Fetch initial shares/updates from LinkedIn"""
@@ -446,18 +390,6 @@ class LinkedInConnector(SocialMediaConnector):
                 except Exception:
                     pass
         return InsightsData(platform='linkedin', post_external_id=post_external_id, metrics=metrics)
-
-    async def create_post(self, payload: PostCreate) -> PostData:
-        raise NotImplementedError("LinkedInConnector.create_post not implemented")
-
-    async def update_post(self, post_external_id: str, payload: PostUpdate) -> PostData:
-        raise NotImplementedError("LinkedInConnector.update_post not implemented")
-
-    async def delete_post(self, post_external_id: str) -> bool:
-        raise NotImplementedError("LinkedInConnector.delete_post not implemented")
-
-    async def upload_video(self, payload: VideoUpload) -> PostData:
-        raise NotImplementedError("LinkedInConnector.upload_video not implemented")
 
 class YouTubeConnector(SocialMediaConnector):
     """Fetch initial videos and top comments from YouTube Data API"""
@@ -599,18 +531,6 @@ class YouTubeConnector(SocialMediaConnector):
             return InsightsData(platform='youtube', post_external_id=post_external_id, metrics={})
         return InsightsData(platform='youtube', post_external_id=post_external_id, metrics=metrics)
 
-    async def create_post(self, payload: PostCreate) -> PostData:
-        raise NotImplementedError("YouTubeConnector.create_post not implemented")
-
-    async def update_post(self, post_external_id: str, payload: PostUpdate) -> PostData:
-        raise NotImplementedError("YouTubeConnector.update_post not implemented")
-
-    async def delete_post(self, post_external_id: str) -> bool:
-        raise NotImplementedError("YouTubeConnector.delete_post not implemented")
-
-    async def upload_video(self, payload: VideoUpload) -> PostData:
-        raise NotImplementedError("YouTubeConnector.upload_video not implemented")
-
 class TikTokConnector(SocialMediaConnector):
     """Fetch initial videos and comments from TikTok"""
     async def fetch_initial(self) -> Tuple[List[PostData], List[CommentData]]:
@@ -699,18 +619,6 @@ class TikTokConnector(SocialMediaConnector):
         except Exception:
             return InsightsData(platform='tiktok', post_external_id=post_external_id, metrics={})
         return InsightsData(platform='tiktok', post_external_id=post_external_id, metrics=metrics)
-
-    async def create_post(self, payload: PostCreate) -> PostData:
-        raise NotImplementedError("TikTokConnector.create_post not implemented")
-
-    async def update_post(self, post_external_id: str, payload: PostUpdate) -> PostData:
-        raise NotImplementedError("TikTokConnector.update_post not implemented")
-
-    async def delete_post(self, post_external_id: str) -> bool:
-        raise NotImplementedError("TikTokConnector.delete_post not implemented")
-
-    async def upload_video(self, payload: VideoUpload) -> PostData:
-        raise NotImplementedError("TikTokConnector.upload_video not implemented")
 
 # Connector registry
 CONNECTORS = {
