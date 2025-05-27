@@ -57,7 +57,7 @@ class TestPlatformRegistry:
         
         platforms = registry.list_platforms()
         
-        expected_platforms = ["instagram", "twitter", "youtube", "linkedin"]
+        expected_platforms = ["instagram", "twitter", "youtube", "linkedin", "facebook"]
         assert set(platforms) == set(expected_platforms)
 
     def test_get_platform_service_dependency_injection_success(self):
@@ -81,7 +81,7 @@ class TestPlatformRegistry:
 class TestPlatformServiceInterface:
     """Test that all platform services implement required interface"""
 
-    @pytest.mark.parametrize("platform", ["instagram", "twitter", "youtube", "linkedin"])
+    @pytest.mark.parametrize("platform", ["instagram", "twitter", "youtube", "linkedin", "facebook"])
     def test_platform_service_implements_interface(self, platform):
         """
         Business Critical: All platform services must implement the same interface

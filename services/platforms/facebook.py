@@ -158,7 +158,10 @@ class FacebookService(BasePlatformService):
         return hmac.compare_digest(signature, expected)
 
     async def post_reply(self, comment_id: str, message: str, access_token: str) -> Dict[str, Any]:
-        raise NotImplementedError('FacebookService.post_reply not implemented')
+        """Post a reply to a Facebook comment."""
+        graph = GraphAPI(access_token=access_token, version='16.0')
+        result = await asyncio.to_thread(graph.put_object, comment_id, 'comments', message=message)
+        return result
 
     async def fetch_initial(self) -> Any:
         raise NotImplementedError('FacebookService.fetch_initial not implemented')

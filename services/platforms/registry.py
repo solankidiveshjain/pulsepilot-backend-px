@@ -8,6 +8,7 @@ from .instagram import InstagramService
 from .twitter import TwitterService
 from .youtube import YouTubeService
 from .linkedin import LinkedInService
+from .facebook import FacebookService
 
 
 class PlatformRegistry:
@@ -19,6 +20,7 @@ class PlatformRegistry:
             "twitter": TwitterService,
             "youtube": YouTubeService,
             "linkedin": LinkedInService,
+            "facebook": FacebookService,
         }
         self._instances: Dict[str, BasePlatformService] = {}
     
