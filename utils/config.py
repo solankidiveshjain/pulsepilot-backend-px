@@ -98,7 +98,10 @@ class Config(BaseSettings):
 def get_config() -> Config:
     """Get cached configuration instance"""
     try:
-        return Config()
+        # TODO: fetch social media API credentials (INSTAGRAM_APP_ID/SECRET, TWITTER_*, YOUTUBE_*, LINKEDIN_*)
+        #       from Supabase secrets store instead of environment variables
+        config = Config()
+        return config
     except Exception as e:
         raise RuntimeError(f"Configuration validation failed: {str(e)}")
 
