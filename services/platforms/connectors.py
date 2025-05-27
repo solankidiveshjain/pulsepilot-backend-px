@@ -100,123 +100,25 @@ class TwitterConnector(SocialMediaConnector):
 class LinkedInConnector(SocialMediaConnector):
     """Fetch initial shares/updates from LinkedIn"""
     async def fetch_initial(self) -> Tuple[List[PostData], List[CommentData]]:
-        """Use python-linkedin-v2 to fetch organization updates."""
-        from linkedin_v2 import linkedin
-        import asyncio
-        token = self.connection.access_token
-        app = linkedin.LinkedInApplication(token=token)
-        # Expect organization ID saved in connection metadata
-        org_id = self.connection.metadata.get('organization_id') if hasattr(self.connection, 'metadata') else None
-        if not org_id:
-            return [], []
-        try:
-            updates = await asyncio.to_thread(
-                app.get_company_updates,
-                organization_id=org_id,
-                params={'count': 25}
-            )
-        except Exception:
-            return [], []
-        posts: List[PostData] = []
-        comments: List[CommentData] = []
-        for u in updates.get('values', []):
-            # LinkedIn timestamps are in milliseconds
-            ts = u.get('timestamp')
-            created_at = None
-            if ts:
-                created_at = datetime.fromtimestamp(int(ts) / 1000)
-            posts.append(PostData(
-                external_id=str(u.get('updateKey', '')),
-                platform='linkedin',
-                type=u.get('updateType'),
-                metadata=u,
-                created_at=created_at
-            ))
-        return posts, comments
+        """Delegate to LinkedInService for initial share/comment sync."""
+        from services.platforms.linkedin import LinkedInService
+        svc = LinkedInService()
+        org_id = self.connection.metadata.get('organization_id')
+        return await svc.fetch_initial(self.connection.access_token, org_id)
 
     async def fetch_metrics(self, since: datetime, until: datetime) -> MetricsData:
-        """Fetch LinkedIn organization page statistics between two timestamps."""
-        from utils.http_client import get_async_client
-        from utils.config import get_config
-        import asyncio
-        # Prepare HTTP client and config
-        client = get_async_client()
-        config = get_config()
-        base_url = config.linkedin_api_base_url
-        token = self.connection.access_token
-        # Determine organization URN
+        """Delegate to LinkedInService for organization-level metrics."""
+        from services.platforms.linkedin import LinkedInService
+        svc = LinkedInService()
         org_id = self.connection.metadata.get('organization_id')
-        if not org_id:
-            return MetricsData(platform='linkedin', since=since, until=until, metrics={})
-        org_urn = f"urn:li:organization:{org_id}"
-        # Time interval in milliseconds
-        start_ms = int(since.timestamp() * 1000)
-        end_ms = int(until.timestamp() * 1000)
-        # Prepare query parameters for LinkedIn metrics
-        params = {
-            'q': 'organization',
-            'organization': org_urn,
-            # LinkedIn expects timeIntervals as a string
-            'timeIntervals': f"(timeRange:(start:{start_ms},end:{end_ms}),timeGranularityType:DAY)"
-        }
-        headers = {'Authorization': f"Bearer {token}"}
-        try:
-            resp = await client.get(f"{base_url}/organizationPageStatistics", params=params, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception:
-            return MetricsData(platform='linkedin', since=since, until=until, metrics={})
-        elements = data.get('elements', [])
-        metrics: dict = {}
-        for elem in elements:
-            stats = elem.get('totalPageStatistics', {}) or {}
-            for k, v in stats.items():
-                if isinstance(v, dict):
-                    metrics[k] = metrics.get(k, 0) + sum(v.values())
-                else:
-                    try:
-                        metrics[k] = metrics.get(k, 0) + int(v)
-                    except Exception:
-                        pass
-        return MetricsData(platform='linkedin', since=since, until=until, metrics=metrics)
+        return await svc.fetch_metrics(self.connection.access_token, since, until, org_id)
 
     async def fetch_insights(self, post_external_id: str) -> InsightsData:
-        """Fetch LinkedIn share-level statistics for a single post."""
-        from utils.http_client import get_async_client
-        from utils.config import get_config
-        import asyncio
-        client = get_async_client()
-        config = get_config()
-        base_url = config.linkedin_api_base_url
-        token = self.connection.access_token
+        """Delegate to LinkedInService for share-level insights."""
+        from services.platforms.linkedin import LinkedInService
+        svc = LinkedInService()
         org_id = self.connection.metadata.get('organization_id')
-        if not org_id:
-            return InsightsData(platform='linkedin', post_external_id=post_external_id, metrics={})
-        share_urn = post_external_id
-        # Prepare query parameters for LinkedIn share insights
-        params = {
-            'q': 'organizationalEntity',
-            'organizationalEntity': f"urn:li:organization:{org_id}",
-            # LinkedIn expects shares as a string or comma-separated list
-            'shares': share_urn
-        }
-        headers = {'Authorization': f"Bearer {token}"}
-        try:
-            resp = await client.get(f"{base_url}/organizationalEntityShareStatistics", params=params, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception:
-            return InsightsData(platform='linkedin', post_external_id=post_external_id, metrics={})
-        elements = data.get('elements', [])
-        metrics: dict = {}
-        for elem in elements:
-            stats = elem.get('shareStatistics', {}) or {}
-            for k, v in stats.items():
-                try:
-                    metrics[k] = int(v)
-                except Exception:
-                    pass
-        return InsightsData(platform='linkedin', post_external_id=post_external_id, metrics=metrics)
+        return await svc.fetch_insights(self.connection.access_token, post_external_id, org_id)
 
 class YouTubeConnector(SocialMediaConnector):
     """Fetch initial videos and top comments from YouTube Data API"""

@@ -4,7 +4,7 @@ LinkedIn platform service implementation
 
 import hmac
 import hashlib
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from uuid import UUID
 from utils.http_client import get_async_client
 from datetime import datetime, timedelta
@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from .base import BasePlatformService, ConnectionConfig, WebhookPayload, CommentData, OnboardingConfig
 from utils.config import get_config
 import asyncio
+from schemas.social_media import PostData, CommentData, MetricsData, InsightsData
 
 
 class LinkedInService(BasePlatformService):
@@ -197,3 +198,100 @@ class LinkedInService(BasePlatformService):
     verify_webhook_signature = _verify_signature
     # Alias validate_connection to validate_token
     validate_connection = validate_token
+
+    async def fetch_initial(self, access_token: str, org_id: Optional[str] = None) -> Tuple[List[PostData], List[CommentData]]:
+        """Fetch recent shares and comments from LinkedIn organization page."""
+        from linkedin_v2 import linkedin
+        import asyncio
+        if not org_id:
+            return [], []
+        app = linkedin.LinkedInApplication(token=access_token)
+        try:
+            updates = await asyncio.to_thread(
+                app.get_company_updates,
+                organization_id=org_id,
+                params={'count': 25}
+            )
+        except Exception:
+            return [], []
+        posts: List[PostData] = []
+        comments: List[CommentData] = []
+        for u in updates.get('values', []):
+            ts = u.get('timestamp')
+            created_at = datetime.fromtimestamp(int(ts) / 1000) if ts else None
+            posts.append(PostData(
+                external_id=str(u.get('updateKey', '')),
+                platform=self.platform_name,
+                type=u.get('updateType'),
+                metadata=u,
+                created_at=created_at
+            ))
+        return posts, comments
+
+    async def fetch_metrics(self, access_token: str, since: datetime, until: datetime, org_id: Optional[str] = None) -> MetricsData:
+        """Fetch LinkedIn organization page statistics between two timestamps."""
+        if not org_id:
+            return MetricsData(platform=self.platform_name, since=since, until=until, metrics={})
+        # Time interval in milliseconds
+        start_ms = int(since.timestamp() * 1000)
+        end_ms = int(until.timestamp() * 1000)
+        params = {
+            'q': 'organization',
+            'organization': f"urn:li:organization:{org_id}",
+            'timeIntervals': f"(timeRange:(start:{start_ms},end:{end_ms}),timeGranularityType:DAY)"
+        }
+        headers = {'Authorization': f"Bearer {access_token}"}
+        base_url = self.config.linkedin_api_base_url if self.config and hasattr(self.config, 'linkedin_api_base_url') else self.base_url
+        try:
+            resp = await self.client.get(
+                f"{base_url}/organizationPageStatistics",
+                params=params,
+                headers=headers
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            return MetricsData(platform=self.platform_name, since=since, until=until, metrics={})
+        metrics: Dict[str, int] = {}
+        for elem in data.get('elements', []):
+            stats = elem.get('totalPageStatistics', {}) or {}
+            for k, v in stats.items():
+                if isinstance(v, dict):
+                    metrics[k] = metrics.get(k, 0) + sum(v.values())
+                else:
+                    try:
+                        metrics[k] = metrics.get(k, 0) + int(v)
+                    except Exception:
+                        pass
+        return MetricsData(platform=self.platform_name, since=since, until=until, metrics=metrics)
+
+    async def fetch_insights(self, access_token: str, post_external_id: str, org_id: Optional[str] = None) -> InsightsData:
+        """Fetch LinkedIn share-level statistics for a single post."""
+        if not org_id:
+            return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics={})
+        params = {
+            'q': 'organizationalEntity',
+            'organizationalEntity': f"urn:li:organization:{org_id}",
+            'shares': post_external_id
+        }
+        headers = {'Authorization': f"Bearer {access_token}"}
+        base_url = self.config.linkedin_api_base_url if self.config and hasattr(self.config, 'linkedin_api_base_url') else self.base_url
+        try:
+            resp = await self.client.get(
+                f"{base_url}/organizationalEntityShareStatistics",
+                params=params,
+                headers=headers
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics={})
+        metrics: Dict[str, int] = {}
+        for elem in data.get('elements', []):
+            stats = elem.get('shareStatistics', {}) or {}
+            for k, v in stats.items():
+                try:
+                    metrics[k] = int(v)
+                except Exception:
+                    pass
+        return InsightsData(platform=self.platform_name, post_external_id=post_external_id, metrics=metrics)
