@@ -4,9 +4,16 @@ Comment classification service for sentiment, emotion, and category analysis
 
 import os
 from typing import Dict, Any
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
+try:
+    from langchain_openai import ChatOpenAI
+except ImportError:
+    ChatOpenAI = None
+try:
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.output_parsers import JsonOutputParser
+except ImportError:
+    ChatPromptTemplate = None
+    JsonOutputParser = None
 from pydantic import BaseModel, Field
 
 
@@ -22,6 +29,8 @@ class ClassificationService:
     """Service for classifying comments"""
     
     def __init__(self):
+        if ChatOpenAI is None or ChatPromptTemplate is None or JsonOutputParser is None:
+            raise RuntimeError("Required langchain packages are not installed")
         self.llm = ChatOpenAI(
             model="gpt-4-turbo-preview",
             temperature=0.1,  # Low temperature for consistent classification

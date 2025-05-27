@@ -4,12 +4,14 @@ LinkedIn platform service implementation
 
 import hmac
 import hashlib
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from uuid import UUID
 from utils.http_client import get_async_client
+from datetime import datetime, timedelta
 
-from .base import BasePlatformService, ConnectionConfig, WebhookPayload, CommentData
+from .base import BasePlatformService, ConnectionConfig, WebhookPayload, CommentData, OnboardingConfig
 from utils.config import get_config
+import asyncio
 
 
 class LinkedInService(BasePlatformService):
@@ -23,6 +25,8 @@ class LinkedInService(BasePlatformService):
             self.config = get_config()
         except Exception:
             self.config = None
+        # OAuth onboarding config
+        self._oauth_config: Optional[OnboardingConfig] = None
     
     @property
     def platform_name(self) -> str:
@@ -98,6 +102,78 @@ class LinkedInService(BasePlatformService):
         )
         response.raise_for_status()
         return response.json()
+    
+    async def get_onboarding_url(self, team_id: UUID, config: OnboardingConfig) -> Dict[str, Any]:
+        """Generate LinkedIn OAuth authorization URL"""
+        self._oauth_config = config
+        state = str(team_id)
+        scope_str = ' '.join(config.scopes)
+        auth_url = (
+            f"https://www.linkedin.com/oauth/v2/authorization"
+            f"?response_type=code"
+            f"&client_id={config.client_id}"
+            f"&redirect_uri={config.redirect_uri}"
+            f"&scope={scope_str}"
+            f"&state={state}"
+        )
+        return {'auth_url': auth_url, 'state': state, 'platform': self.platform_name}
+
+    async def exchange_auth_code(self, auth_code: str, state: str) -> ConnectionConfig:
+        """Exchange LinkedIn OAuth code for access token"""
+        if not self._oauth_config:
+            raise RuntimeError("OAuth configuration missing for LinkedIn code exchange")
+        data = {
+            'grant_type': 'authorization_code',
+            'code': auth_code,
+            'redirect_uri': self._oauth_config.redirect_uri,
+            'client_id': self._oauth_config.client_id,
+            'client_secret': self._oauth_config.client_secret
+        }
+        # LinkedIn token endpoint
+        resp = await self.client.post(
+            'https://www.linkedin.com/oauth/v2/accessToken',
+            data=data,
+            headers={'Content-Type': 'application/x-www-form-urlencoded'}
+        )
+        resp.raise_for_status()
+        token_data = resp.json()
+        access = token_data.get('access_token')
+        expires_in = token_data.get('expires_in')
+        expires_at = datetime.utcnow() + timedelta(seconds=expires_in) if expires_in else None
+        return ConnectionConfig(
+            access_token=access,
+            refresh_token=None,
+            token_expires=expires_at,
+            metadata=token_data
+        )
+    
+    async def refresh_token(self, refresh_token: str) -> ConnectionConfig:
+        """Refresh LinkedIn access token using refresh_token grant"""
+        if not self._oauth_config:
+            raise RuntimeError("OAuth configuration missing for LinkedIn refresh")
+        data = {
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh_token,
+            'client_id': self._oauth_config.client_id,
+            'client_secret': self._oauth_config.client_secret
+        }
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        resp = await self.client.post(
+            'https://www.linkedin.com/oauth/v2/accessToken',
+            data=data,
+            headers=headers
+        )
+        resp.raise_for_status()
+        token_data = resp.json()
+        access = token_data.get('access_token')
+        expires_in = token_data.get('expires_in')
+        expires_at = datetime.utcnow() + timedelta(seconds=expires_in) if expires_in else None
+        return ConnectionConfig(
+            access_token=access,
+            refresh_token=refresh_token,
+            token_expires=expires_at,
+            metadata=token_data
+        )
     
     async def _verify_signature(self, body: bytes, headers: Dict[str, str]) -> bool:
         """Verify LinkedIn webhook signature"""

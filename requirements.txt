@@ -1,7 +1,7 @@
 # FastAPI and Web Framework
-fastapi==0.115.12
-uvicorn[standard]==0.34.2
-python-multipart==0.0.20
+# fastapi==0.115.12
+# uvicorn[standard]==0.34.2
+# python-multipart==0.0.20
 
 # Database and ORM
 sqlmodel==0.0.24
@@ -49,3 +49,10 @@ hypothesis==6.103.0
 black==24.4.2
 isort==5.13.2
 mypy==1.10.0
+
+# Social media SDKs for fetching initial data (bumped to latest as of May 2025)
+facebook-sdk>=3.3.0
+tweepy>=4.19.1
+python-linkedin-v2>=2.1.0
+google-api-python-client>=2.96.0
+TikTokApi>=8.1.0

@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from models.database import Comment
+from models.database import Comment, Reply
 from services.vector_service import VectorService
 from utils.database import get_session
 from utils.logging import get_logger
@@ -41,8 +41,15 @@ async def generate_comment_embedding(comment_id: UUID):
                 logger.info(f"Comment {comment_id} already has embedding")
                 return
             
-            # Generate embedding
-            embedding = await vector_service.generate_embedding(comment.message)
+            # Combine comment and any replies for embedding
+            stmt_r = select(Reply).where(Reply.comment_id == comment_id)
+            res_r = await db.execute(stmt_r)
+            reply_objs = res_r.scalars().all()
+            # Build text: original comment plus replies' messages
+            texts = [comment.message] + [r.message for r in reply_objs if r.message]
+            text_to_embed = " ".join(texts)
+            # Generate embedding on combined text
+            embedding = await vector_service.generate_embedding(text_to_embed)
             
             # Upsert comment embedding
             await upsert(
@@ -59,8 +66,8 @@ async def generate_comment_embedding(comment_id: UUID):
             await token_tracker.track_usage(
                 team_id=comment.team_id,
                 usage_type="embedding",
-                tokens_used=len(comment.message.split()),
-                cost=0.0001 * len(comment.message.split())
+                tokens_used=len(text_to_embed.split()),
+                cost=0.0001 * len(text_to_embed.split())
             )
             
             logger.info(f"Generated embedding for comment {comment_id}")

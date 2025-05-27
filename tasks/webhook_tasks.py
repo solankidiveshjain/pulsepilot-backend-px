@@ -8,7 +8,7 @@ from uuid import UUID
 from .base import BaseTask, task_queue
 from services.platforms.registry import get_platform_service
 from services.platforms.base import WebhookPayload, CommentData
-from models.database import Comment
+from models.database import Comment, Reply
 from utils.database import get_session
 from utils.logging import get_logger
 from utils.exceptions import PlatformError, DatabaseError
@@ -104,8 +104,14 @@ class EmbeddingGenerationTask(BaseTask):
                     logger.info(f"Comment {comment_id} already has embedding")
                     return True
                 
-                # Generate embedding
-                embedding = await vector_service.generate_embedding(comment.message)
+                # Combine comment and any replies for embedding
+                stmt_r = select(Reply).where(Reply.comment_id == comment_id)
+                res_r = await db.execute(stmt_r)
+                reply_objs = res_r.scalars().all()
+                texts = [comment.message] + [r.message for r in reply_objs if r.message]
+                text_to_embed = " ".join(texts)
+                # Generate embedding on combined text
+                embedding = await vector_service.generate_embedding(text_to_embed)
                 
                 # Update comment
                 stmt = update(Comment).where(
@@ -119,8 +125,8 @@ class EmbeddingGenerationTask(BaseTask):
                 await token_tracker.track_usage(
                     team_id=comment.team_id,
                     usage_type="embedding",
-                    tokens_used=len(comment.message.split()),
-                    cost=0.0001 * len(comment.message.split())
+                    tokens_used=len(text_to_embed.split()),
+                    cost=0.0001 * len(text_to_embed.split())
                 )
                 
                 return True
@@ -139,12 +145,7 @@ class CommentClassificationTask(BaseTask):
     async def execute(self, comment_id: UUID) -> bool:
         """Classify a comment"""
         try:
-            from services.classification_service import ClassificationService
-            from utils.token_tracker import TokenTracker
             from sqlalchemy import select, update
-            
-            classification_service = ClassificationService()
-            token_tracker = TokenTracker()
             
             async with get_session() as db:
                 # Get comment
@@ -160,9 +161,21 @@ class CommentClassificationTask(BaseTask):
                     logger.info(f"Comment {comment_id} already classified")
                     return True
                 
-                # Classify comment
+                # Instantiate services after skip
+                from services.classification_service import ClassificationService
+                from utils.token_tracker import TokenTracker
+                classification_service = ClassificationService()
+                token_tracker = TokenTracker()
+                
+                # Combine comment and replies for classification
+                stmt_r = select(Reply).where(Reply.comment_id == comment_id)
+                res_r = await db.execute(stmt_r)
+                reply_objs = res_r.scalars().all()
+                texts = [comment.message] + [r.message for r in reply_objs if r.message]
+                text_to_classify = " ".join(texts)
+                # Classify comment context
                 classification = await classification_service.classify_comment(
-                    comment.message,
+                    text_to_classify,
                     comment.platform
                 )
                 
@@ -172,7 +185,7 @@ class CommentClassificationTask(BaseTask):
                 
                 stmt = update(Comment).where(
                     Comment.comment_id == comment_id
-                ).values(metadata=metadata)
+                ).values(metadata_json=metadata)
                 
                 await db.execute(stmt)
                 await db.commit()
@@ -181,8 +194,8 @@ class CommentClassificationTask(BaseTask):
                 await token_tracker.track_usage(
                     team_id=comment.team_id,
                     usage_type="classification",
-                    tokens_used=len(comment.message.split()),
-                    cost=0.0002 * len(comment.message.split())
+                    tokens_used=len(text_to_classify.split()),
+                    cost=0.0002 * len(text_to_classify.split())
                 )
                 
                 return True

@@ -69,6 +69,9 @@ class SocialConnection(SQLModel, table=True):
 class Comment(SQLModel, table=True):
     __tablename__ = "comments"
     
+    # External ID from social platform for upsert
+    external_id: str = Field(max_length=255, sa_column=Column(String))
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if hasattr(self, 'metadata_json'):
@@ -123,6 +126,9 @@ class AiSuggestion(SQLModel, table=True):
 
 class Post(SQLModel, table=True):
     __tablename__ = "posts"
+    
+    # External ID from social platform for upsert
+    external_id: str = Field(max_length=255, sa_column=Column(String))
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
